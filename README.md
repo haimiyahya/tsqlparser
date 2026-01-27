@@ -96,10 +96,23 @@ tsqlparser/
 ├── lexer/          # Lexical analysis
 ├── ast/            # Abstract syntax tree nodes
 ├── parser/         # Recursive descent parser
+├── version/        # Version information package
 ├── testdata/       # 201 T-SQL sample files for integration testing
 ├── cmd/example/    # Example usage
 ├── tsqlparser.go   # Main API
+├── VERSION         # Version number (single source of truth)
 └── go.mod
+```
+
+## Version
+
+Access the library version programmatically:
+
+```go
+import "github.com/ha1tch/tsqlparser/version"
+
+fmt.Println(version.Version)  // "0.5.0"
+fmt.Println(version.Full())   // "tsqlparser version 0.5.0"
 ```
 
 ## Testing
@@ -142,7 +155,7 @@ go test ./parser -bench=Corpus -benchtime=1s
 
 ## License
 
-Copyright (C) 2025 haitch
+Copyright (C) 2025-2026 haitch
 
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 3.
 

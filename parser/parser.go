@@ -32,11 +32,11 @@ const (
 )
 
 var precedences = map[token.Type]int{
-	token.OR:                   OR_PREC,
-	token.AND:                  AND_PREC,
-	token.NOT:                  BETWEEN_PREC, // For NOT IN, NOT LIKE, NOT BETWEEN
-	token.EQ:                   COMPARE,
-	token.NEQ:                  COMPARE,
+	token.OR:        OR_PREC,
+	token.AND:       AND_PREC,
+	token.NOT:       BETWEEN_PREC, // For NOT IN, NOT LIKE, NOT BETWEEN
+	token.EQ:        COMPARE,
+	token.NEQ:       COMPARE,
 	token.LT:                   COMPARE,
 	token.GT:                   COMPARE,
 	token.LTE:                  COMPARE,
@@ -47,23 +47,23 @@ var precedences = map[token.Type]int{
 	token.IS_DISTINCT_FROM:     COMPARE,
 	token.IS_NOT_DISTINCT_FROM: COMPARE,
 	token.LIKE:                 BETWEEN_PREC,
-	token.BETWEEN:              BETWEEN_PREC,
-	token.IN:                   BETWEEN_PREC,
-	token.COLLATE:              CALL, // High precedence, binds tightly
-	token.AT:                   CALL, // AT TIME ZONE - high precedence like COLLATE
-	token.PIPE:                 BITOR,
-	token.CARET:                BITXOR,
-	token.AMPERSAND:            BITAND,
-	token.LSHIFT:               SHIFT,
-	token.RSHIFT:               SHIFT,
-	token.PLUS:                 SUM,
-	token.MINUS:                SUM,
-	token.ASTERISK:             PRODUCT,
-	token.SLASH:                PRODUCT,
-	token.PERCENT:              PRODUCT,
-	token.LPAREN:               CALL,
-	token.DOT:                  INDEX,
-	token.SCOPE:                INDEX,
+	token.BETWEEN:   BETWEEN_PREC,
+	token.IN:        BETWEEN_PREC,
+	token.COLLATE:   CALL, // High precedence, binds tightly
+	token.AT:        CALL, // AT TIME ZONE - high precedence like COLLATE
+	token.PIPE:      BITOR,
+	token.CARET:     BITXOR,
+	token.AMPERSAND: BITAND,
+	token.LSHIFT:    SHIFT,
+	token.RSHIFT:    SHIFT,
+	token.PLUS:      SUM,
+	token.MINUS:     SUM,
+	token.ASTERISK:  PRODUCT,
+	token.SLASH:     PRODUCT,
+	token.PERCENT:   PRODUCT,
+	token.LPAREN:    CALL,
+	token.DOT:       INDEX,
+	token.SCOPE:     INDEX,
 }
 
 type (
@@ -392,7 +392,8 @@ func (p *Parser) parseStatement() ast.Statement {
 	case token.WITH_XMLNAMESPACES:
 		return p.parseWithXmlnamespacesStatement()
 	case token.GO:
-		return p.parseGoStatement()
+		// Batch separator - skip
+		return nil
 	case token.ENABLE:
 		return p.parseEnableDisableTriggerStatement(true)
 	case token.DISABLE:
@@ -423,12 +424,12 @@ func (p *Parser) parseStatement() ast.Statement {
 		return p.parseReconfigureStatement()
 	case token.DBCC:
 		return p.parseDbccStatement()
-	case token.GRANT:
-		return p.parseGrantStatement()
-	case token.REVOKE:
-		return p.parseRevokeStatement()
-	case token.DENY:
-		return p.parseDenyStatement()
+	case token.GRANT, token.REVOKE, token.DENY:
+		// Security statements - skip to end (not relevant for transpilation)
+		for !p.curTokenIs(token.SEMICOLON) && !p.curTokenIs(token.GO) && !p.curTokenIs(token.EOF) {
+			p.nextToken()
+		}
+		return nil
 	case token.BACKUP:
 		return p.parseBackupStatement()
 	case token.RESTORE:
@@ -618,10 +619,10 @@ func (p *Parser) parseGroupedExpression() ast.Expression {
 func (p *Parser) parseDotExpression(left ast.Expression) ast.Expression {
 	dotToken := p.curToken
 	p.nextToken()
-
+	
 	// Get the method/property name
 	methodName := p.curToken.Literal
-
+	
 	// Check if this is a method call (followed by parentheses)
 	if p.peekTokenIs(token.LPAREN) {
 		// This is a method call like @xml.value('xpath', 'type')
@@ -634,10 +635,10 @@ func (p *Parser) parseDotExpression(left ast.Expression) ast.Expression {
 		mc.Arguments = p.parseExpressionList(token.RPAREN)
 		return mc
 	}
-
+	
 	// Not a method call, build qualified identifier as before
 	right := &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
-
+	
 	parts := []*ast.Identifier{}
 
 	// Unpack left side if it's already a qualified identifier
@@ -655,7 +656,7 @@ func (p *Parser) parseDotExpression(left ast.Expression) ast.Expression {
 // parseScopeExpression handles static method calls like GEOGRAPHY::Point(...)
 func (p *Parser) parseScopeExpression(left ast.Expression) ast.Expression {
 	scopeToken := p.curToken
-
+	
 	// Get the type name from the left expression
 	var typeName string
 	if id, ok := left.(*ast.Identifier); ok {
@@ -665,12 +666,12 @@ func (p *Parser) parseScopeExpression(left ast.Expression) ast.Expression {
 	} else {
 		typeName = left.String()
 	}
-
+	
 	p.nextToken() // move past ::
-
+	
 	// Get the method name
 	methodName := p.curToken.Literal
-
+	
 	// Check for function call
 	if p.peekTokenIs(token.LPAREN) {
 		sm := &ast.StaticMethodCall{
@@ -682,7 +683,7 @@ func (p *Parser) parseScopeExpression(left ast.Expression) ast.Expression {
 		sm.Arguments = p.parseExpressionList(token.RPAREN)
 		return sm
 	}
-
+	
 	// Not a function call - treat as a qualified name (e.g., SCHEMA::SchemaName)
 	sm := &ast.StaticMethodCall{
 		Token:      scopeToken,
@@ -744,7 +745,7 @@ func (p *Parser) parseExpressionList(end token.Type) []ast.Expression {
 	}
 
 	expr := p.parseExpression(LOWEST)
-
+	
 	// Check for JSON key:value syntax (e.g., JSON_OBJECT('id':1))
 	if p.peekTokenIs(token.COLON) {
 		p.nextToken() // consume :
@@ -756,14 +757,14 @@ func (p *Parser) parseExpressionList(end token.Type) []ast.Expression {
 			Value: value,
 		}
 	}
-
+	
 	list = append(list, expr)
 
 	for p.peekTokenIs(token.COMMA) {
 		p.nextToken()
 		p.nextToken()
 		expr := p.parseExpression(LOWEST)
-
+		
 		// Check for JSON key:value syntax
 		if p.peekTokenIs(token.COLON) {
 			p.nextToken() // consume :
@@ -775,7 +776,7 @@ func (p *Parser) parseExpressionList(end token.Type) []ast.Expression {
 				Value: value,
 			}
 		}
-
+		
 		list = append(list, expr)
 	}
 
@@ -1106,23 +1107,23 @@ func (p *Parser) parseAtTimeZoneExpression(left ast.Expression) ast.Expression {
 	if !p.peekTokenIs(token.TIME) {
 		return left
 	}
-
+	
 	expr := &ast.AtTimeZoneExpression{Token: p.curToken, Expr: left}
-
+	
 	// Expect TIME
 	if !p.expectPeek(token.TIME) {
 		return nil
 	}
-
+	
 	// Expect ZONE
 	if !p.expectPeek(token.ZONE) {
 		return nil
 	}
-
+	
 	p.nextToken()
 	// Parse timezone with CALL precedence to avoid consuming comparison operators
 	expr.TimeZone = p.parseExpression(CALL)
-
+	
 	return expr
 }
 
@@ -1191,16 +1192,16 @@ func (p *Parser) parseIsNullExpression(left ast.Expression) ast.Expression {
 // parseDistinctFromExpression handles IS [NOT] DISTINCT FROM expressions
 func (p *Parser) parseDistinctFromExpression(left ast.Expression) ast.Expression {
 	expr := &ast.IsDistinctFromExpression{Token: p.curToken, Left: left}
-
+	
 	// Check if this is IS NOT DISTINCT FROM
 	if p.curTokenIs(token.IS_NOT_DISTINCT_FROM) {
 		expr.Not = true
 	}
-
+	
 	p.nextToken() // move past IS [NOT] DISTINCT FROM
-
+	
 	expr.Right = p.parseExpression(COMPARE)
-
+	
 	return expr
 }
 
@@ -1325,23 +1326,23 @@ func (p *Parser) parseOverClause() *ast.OverClause {
 
 func (p *Parser) parseWindowDefinitions() []*ast.WindowDefinition {
 	var defs []*ast.WindowDefinition
-
+	
 	for {
 		p.nextToken() // move to window name
 		def := &ast.WindowDefinition{Name: p.curToken.Literal}
-
+		
 		if !p.expectPeek(token.AS) {
 			return defs
 		}
-
+		
 		if !p.expectPeek(token.LPAREN) {
 			return defs
 		}
-
+		
 		// Create an OverClause to reuse parsing logic
 		over := &ast.OverClause{Token: p.curToken}
 		p.nextToken()
-
+		
 		// Parse PARTITION BY
 		if p.curTokenIs(token.PARTITION) {
 			if p.peekTokenIs(token.BY) {
@@ -1356,7 +1357,7 @@ func (p *Parser) parseWindowDefinitions() []*ast.WindowDefinition {
 				p.nextToken()
 			}
 		}
-
+		
 		// Parse ORDER BY
 		if p.curTokenIs(token.ORDER) {
 			if p.peekTokenIs(token.BY) {
@@ -1365,28 +1366,28 @@ func (p *Parser) parseWindowDefinitions() []*ast.WindowDefinition {
 				over.OrderBy = p.parseOrderByItems()
 			}
 		}
-
+		
 		// Skip to closing paren
 		for !p.curTokenIs(token.RPAREN) && !p.curTokenIs(token.EOF) {
 			p.nextToken()
 		}
-
+		
 		def.Spec = over
 		defs = append(defs, def)
-
+		
 		// Check for more window definitions (comma-separated)
 		if !p.peekTokenIs(token.COMMA) {
 			break
 		}
 		p.nextToken() // consume comma
 	}
-
+	
 	return defs
 }
 
 func (p *Parser) parseWindowFrame() *ast.WindowFrame {
 	frame := &ast.WindowFrame{}
-
+	
 	if p.curTokenIs(token.ROWS) {
 		frame.Type = "ROWS"
 	} else {
@@ -1449,38 +1450,38 @@ func (p *Parser) parseFrameBound() *ast.FrameBound {
 func (p *Parser) parseParenthesizedSelectStatement() ast.Statement {
 	// We're at the opening (
 	p.nextToken() // move past (
-
+	
 	// Parse the inner SELECT
 	if !p.curTokenIs(token.SELECT) {
 		// Not a SELECT inside parens, fall back to expression statement
 		// Backtrack is complex, so just parse as expression
 		return p.parseExpressionStatement()
 	}
-
+	
 	innerSelect := p.parseSelectStatement()
-
+	
 	// Expect closing )
 	if !p.expectPeek(token.RPAREN) {
 		return nil
 	}
-
+	
 	// Now check for set operation: UNION, INTERSECT, EXCEPT
 	if p.peekTokenIs(token.UNION) || p.peekTokenIs(token.INTERSECT) || p.peekTokenIs(token.EXCEPT) {
 		p.nextToken() // consume set operator
 		opToken := p.curToken
-
+		
 		// Check for ALL
 		isAll := false
 		if p.peekTokenIs(token.ALL) {
 			p.nextToken()
 			isAll = true
 		}
-
+		
 		p.nextToken() // move to next SELECT
 		if !p.curTokenIs(token.SELECT) && !p.curTokenIs(token.LPAREN) {
 			return innerSelect
 		}
-
+		
 		var rightSelect *ast.SelectStatement
 		if p.curTokenIs(token.LPAREN) {
 			// Recursive parenthesized select
@@ -1491,7 +1492,7 @@ func (p *Parser) parseParenthesizedSelectStatement() ast.Statement {
 		} else {
 			rightSelect = p.parseSelectStatement()
 		}
-
+		
 		// Create a UnionClause (also used for INTERSECT/EXCEPT)
 		innerSelect.Union = &ast.UnionClause{
 			Type:  strings.ToUpper(opToken.Literal),
@@ -1499,7 +1500,7 @@ func (p *Parser) parseParenthesizedSelectStatement() ast.Statement {
 			Right: rightSelect,
 		}
 	}
-
+	
 	return innerSelect
 }
 
@@ -1651,7 +1652,7 @@ func (p *Parser) parseSelectStatement() *ast.SelectStatement {
 // parseForClause parses FOR XML or FOR JSON clause
 func (p *Parser) parseForClause() *ast.ForClause {
 	clause := &ast.ForClause{Token: p.curToken}
-
+	
 	// Expect XML or JSON
 	if p.peekTokenIs(token.XML) {
 		p.nextToken()
@@ -1661,14 +1662,14 @@ func (p *Parser) parseForClause() *ast.ForClause {
 		p.errors = append(p.errors, "expected XML or JSON after FOR")
 		return nil
 	}
-
+	
 	clause.ForType = p.curToken.Literal
-
+	
 	// Parse mode: RAW, AUTO, PATH, EXPLICIT
 	if p.peekTokenIs(token.RAW) || p.peekTokenIs(token.AUTO) || p.peekTokenIs(token.PATH) || p.peekTokenIs(token.EXPLICIT) {
 		p.nextToken()
 		clause.Mode = p.curToken.Literal
-
+		
 		// Check for optional element name: RAW('name') or PATH('name')
 		if p.peekTokenIs(token.LPAREN) {
 			p.nextToken() // consume (
@@ -1681,12 +1682,12 @@ func (p *Parser) parseForClause() *ast.ForClause {
 			}
 		}
 	}
-
+	
 	// Parse options (comma-separated)
 	for p.peekTokenIs(token.COMMA) {
 		p.nextToken() // consume comma
 		p.nextToken() // move to option
-
+		
 		switch p.curToken.Type {
 		case token.ELEMENTS:
 			clause.Elements = true
@@ -1716,7 +1717,7 @@ func (p *Parser) parseForClause() *ast.ForClause {
 			clause.IncludeNullValues = true
 		}
 	}
-
+	
 	return clause
 }
 
@@ -1733,7 +1734,7 @@ func (p *Parser) parseOptionClause() []*ast.QueryOption {
 	// Parse options
 	for !p.curTokenIs(token.RPAREN) && !p.curTokenIs(token.EOF) {
 		opt := &ast.QueryOption{Name: strings.ToUpper(p.curToken.Literal)}
-
+		
 		// Check for USE HINT
 		if p.curTokenIs(token.USE) && p.peekTokenIs(token.HINT) {
 			p.nextToken() // consume HINT
@@ -1764,7 +1765,7 @@ func (p *Parser) parseOptionClause() []*ast.QueryOption {
 			}
 			break // no comma means we're done with options
 		}
-
+		
 		// Check for USE PLAN @variable or USE PLAN N'xml'
 		if p.curTokenIs(token.USE) && p.peekToken.Type == token.IDENT && strings.ToUpper(p.peekToken.Literal) == "PLAN" {
 			p.nextToken() // consume PLAN
@@ -1781,12 +1782,12 @@ func (p *Parser) parseOptionClause() []*ast.QueryOption {
 			}
 			break
 		}
-
+		
 		// Check for OPTIMIZE FOR (@var = value, @var UNKNOWN) or OPTIMIZE FOR UNKNOWN
 		if strings.ToUpper(p.curToken.Literal) == "OPTIMIZE" && p.peekTokenIs(token.FOR) {
 			p.nextToken() // consume FOR
 			opt.Name = "OPTIMIZE FOR"
-
+			
 			// Check for shorthand OPTIMIZE FOR UNKNOWN (without parentheses)
 			if p.peekToken.Type == token.IDENT && strings.ToUpper(p.peekToken.Literal) == "UNKNOWN" {
 				p.nextToken() // consume UNKNOWN
@@ -1799,7 +1800,7 @@ func (p *Parser) parseOptionClause() []*ast.QueryOption {
 				}
 				break
 			}
-
+			
 			if p.expectPeek(token.LPAREN) {
 				opt.OptimizeFor = []*ast.OptimizeForHint{}
 				p.nextToken() // move to first variable
@@ -1835,7 +1836,7 @@ func (p *Parser) parseOptionClause() []*ast.QueryOption {
 			}
 			break
 		}
-
+		
 		// Check for multi-word hints like HASH JOIN, MERGE JOIN, LOOP JOIN, FORCE ORDER, KEEP PLAN
 		switch {
 		case p.peekTokenIs(token.JOIN):
@@ -1863,22 +1864,22 @@ func (p *Parser) parseOptionClause() []*ast.QueryOption {
 			p.nextToken()
 			opt.Name += " " + strings.ToUpper(p.curToken.Literal)
 		}
-
+		
 		// Check for value (e.g., MAXDOP 4, QUERYTRACEON 1234)
 		if p.peekToken.Type == token.INT {
 			p.nextToken()
 			opt.Value = p.parseExpression(LOWEST)
 		}
-
+		
 		// Check for = value (e.g., MAX_GRANT_PERCENT = 25)
 		if p.peekTokenIs(token.EQ) {
 			p.nextToken() // consume =
 			p.nextToken() // move to value
 			opt.Value = p.parseExpression(LOWEST)
 		}
-
+		
 		options = append(options, opt)
-
+		
 		if p.peekTokenIs(token.COMMA) {
 			p.nextToken() // consume comma
 			p.nextToken() // move to next option
@@ -1903,19 +1904,19 @@ func (p *Parser) parseOptionClause() []*ast.QueryOption {
 func (p *Parser) parseUnionClause() *ast.UnionClause {
 	clause := &ast.UnionClause{}
 	clause.Type = p.curToken.Literal
-
+	
 	// Check for ALL
 	if p.peekTokenIs(token.ALL) {
 		p.nextToken()
 		clause.All = true
 	}
-
+	
 	// Parse the right side SELECT
 	if !p.expectPeek(token.SELECT) {
 		return nil
 	}
 	clause.Right = p.parseSelectStatement()
-
+	
 	return clause
 }
 
@@ -2077,7 +2078,7 @@ func (p *Parser) isLegacyTableHint() bool {
 
 func (p *Parser) parseTableReference() ast.TableReference {
 	var tableRef ast.TableReference
-
+	
 	// Check for subquery (derived table) or VALUES
 	if p.curTokenIs(token.LPAREN) {
 		startToken := p.curToken
@@ -2085,12 +2086,12 @@ func (p *Parser) parseTableReference() ast.TableReference {
 		if p.curTokenIs(token.SELECT) {
 			subq := p.parseSelectStatement()
 			p.expectPeek(token.RPAREN)
-
+			
 			derived := &ast.DerivedTable{
 				Token:    startToken,
 				Subquery: subq,
 			}
-
+			
 			// Parse alias (required for derived tables, but we'll be lenient)
 			if p.peekTokenIs(token.AS) {
 				p.nextToken()
@@ -2111,14 +2112,14 @@ func (p *Parser) parseTableReference() ast.TableReference {
 					derived.ColumnAliases = p.parseColumnNameList()
 				}
 			}
-
+			
 			tableRef = derived
 		} else if p.curTokenIs(token.VALUES) {
 			// VALUES table constructor: (VALUES (row1), (row2), ...) AS alias(columns)
 			valuesTable := &ast.ValuesTable{Token: startToken}
 			valuesTable.Rows = p.parseValuesRows()
 			p.expectPeek(token.RPAREN)
-
+			
 			// Parse alias (required) and column names
 			if p.peekTokenIs(token.AS) {
 				p.nextToken()
@@ -2137,14 +2138,14 @@ func (p *Parser) parseTableReference() ast.TableReference {
 					valuesTable.Columns = p.parseColumnNameList()
 				}
 			}
-
+			
 			tableRef = valuesTable
 		} else if p.curTokenIs(token.DELETE) {
 			// Composable DML: FROM (DELETE ... OUTPUT ...) AS alias
 			dmlDerived := &ast.DmlDerivedTable{Token: startToken}
 			dmlDerived.Statement = p.parseDeleteStatement()
 			p.expectPeek(token.RPAREN)
-
+			
 			// Parse alias (required for derived tables)
 			if p.peekTokenIs(token.AS) {
 				p.nextToken()
@@ -2162,14 +2163,14 @@ func (p *Parser) parseTableReference() ast.TableReference {
 					dmlDerived.ColumnAliases = p.parseColumnNameList()
 				}
 			}
-
+			
 			tableRef = dmlDerived
 		} else if p.curTokenIs(token.UPDATE) {
 			// Composable DML: FROM (UPDATE ... OUTPUT ...) AS alias
 			dmlDerived := &ast.DmlDerivedTable{Token: startToken}
 			dmlDerived.Statement = p.parseUpdateStatement()
 			p.expectPeek(token.RPAREN)
-
+			
 			if p.peekTokenIs(token.AS) {
 				p.nextToken()
 				p.nextToken()
@@ -2186,14 +2187,14 @@ func (p *Parser) parseTableReference() ast.TableReference {
 					dmlDerived.ColumnAliases = p.parseColumnNameList()
 				}
 			}
-
+			
 			tableRef = dmlDerived
 		} else if p.curTokenIs(token.MERGE) {
 			// Composable DML: FROM (MERGE ... OUTPUT ...) AS alias
 			dmlDerived := &ast.DmlDerivedTable{Token: startToken}
 			dmlDerived.Statement = p.parseMergeStatement()
 			p.expectPeek(token.RPAREN)
-
+			
 			if p.peekTokenIs(token.AS) {
 				p.nextToken()
 				p.nextToken()
@@ -2210,22 +2211,22 @@ func (p *Parser) parseTableReference() ast.TableReference {
 					dmlDerived.ColumnAliases = p.parseColumnNameList()
 				}
 			}
-
+			
 			tableRef = dmlDerived
 		} else {
 			// Parenthesized join group: (table1 JOIN table2 ON ...)
 			// Parse the inner table reference with its joins
 			innerTable := p.parseTableReference()
-
+			
 			// Parse any joins within the parentheses
 			for p.isJoinKeyword() {
 				innerTable = p.parseJoinClause(innerTable)
 			}
-
+			
 			if !p.expectPeek(token.RPAREN) {
 				return nil
 			}
-
+			
 			// Wrap in a parenthesized table reference
 			tableRef = &ast.ParenthesizedTableRef{
 				Token: startToken,
@@ -2246,35 +2247,35 @@ func (p *Parser) parseTableReference() ast.TableReference {
 				Token:    startToken,
 				Function: name,
 			}
-
+			
 			// Check function name for special handling
 			funcName := ""
 			if len(name.Parts) > 0 {
 				funcName = strings.ToUpper(name.Parts[len(name.Parts)-1].Value)
 			}
-
+			
 			// Special handling for OPENROWSET BULK syntax
 			if funcName == "OPENROWSET" && p.peekTokenIs(token.BULK) {
 				p.nextToken() // consume BULK
 				// Create a special argument to represent BULK mode
 				bulkIdent := &ast.Identifier{Token: p.curToken, Value: "BULK"}
 				tvf.Arguments = append(tvf.Arguments, bulkIdent)
-
+				
 				// Parse file path
 				if p.peekTokenIs(token.STRING) || p.peekTokenIs(token.NSTRING) {
 					p.nextToken()
 					tvf.Arguments = append(tvf.Arguments, &ast.StringLiteral{Token: p.curToken, Value: p.curToken.Literal})
 				}
-
+				
 				// Parse options (comma-separated): FORMATFILE = 'x', FIRSTROW = 2, SINGLE_CLOB, etc.
 				for p.peekTokenIs(token.COMMA) {
 					p.nextToken() // consume comma
 					p.nextToken() // move to option
-
+					
 					// Check for keyword options (SINGLE_CLOB, SINGLE_BLOB, SINGLE_NCLOB) or assignment options
 					optToken := p.curToken
 					optName := strings.ToUpper(optToken.Literal)
-
+					
 					if p.peekTokenIs(token.EQ) {
 						// Assignment option: FORMATFILE = 'path', FIRSTROW = 2
 						p.nextToken() // consume =
@@ -2306,14 +2307,15 @@ func (p *Parser) parseTableReference() ast.TableReference {
 			}
 
 			// Check for OPENJSON/OPENXML WITH schema clause
-			isOpenJsonOrXml := funcName == "OPENJSON" || funcName == "OPENXML"
-			if isOpenJsonOrXml && p.peekTokenIs(token.WITH) {
+			isOpenJson := funcName == "OPENJSON"
+			isOpenXml := funcName == "OPENXML"
+			if (isOpenJson || isOpenXml) && p.peekTokenIs(token.WITH) {
 				p.nextToken() // consume WITH
 				if p.expectPeek(token.LPAREN) {
 					tvf.OpenJsonColumns = p.parseOpenJsonColumns()
 				}
 			}
-
+			
 			// Parse alias
 			if p.peekTokenIs(token.AS) {
 				p.nextToken()
@@ -2334,7 +2336,7 @@ func (p *Parser) parseTableReference() ast.TableReference {
 					tvf.ColumnAliases = p.parseColumnNameList()
 				}
 			}
-
+			
 			tableRef = tvf
 		} else {
 			table := &ast.TableName{Token: startToken}
@@ -2389,13 +2391,10 @@ func (p *Parser) parseTableReference() ast.TableReference {
 				if p.expectPeek(token.LPAREN) {
 					table.Hints = p.parseTableHints()
 				}
-			} else if p.peekTokenIs(token.LPAREN) {
-				// Check for legacy hint syntax after alias: FROM table alias (NOLOCK)
-				// We need to distinguish from other uses of parentheses
-				if p.isLegacyTableHint() {
-					p.nextToken() // consume (
-					table.Hints = p.parseTableHints()
-				}
+			} else if p.isLegacyTableHint() {
+				// Legacy hint syntax after alias: FROM table alias (NOLOCK)
+				p.nextToken() // consume (
+				table.Hints = p.parseTableHints()
 			}
 
 			tableRef = table
@@ -2695,7 +2694,7 @@ func (p *Parser) parseTableHints() []string {
 
 	for {
 		hint := strings.ToUpper(p.curToken.Literal)
-
+		
 		// Check for INDEX(name) or INDEX(name, name2) syntax
 		if hint == "INDEX" && p.peekTokenIs(token.LPAREN) {
 			p.nextToken() // consume (
@@ -2715,13 +2714,13 @@ func (p *Parser) parseTableHints() []string {
 			p.nextToken() // move to index number/name
 			hint = "INDEX(" + p.curToken.Literal + ")"
 		}
-
+		
 		// Check for FORCESEEK or FORCESCAN with optional (index(columns)) syntax
 		if (hint == "FORCESEEK" || hint == "FORCESCAN") && p.peekTokenIs(token.LPAREN) {
 			p.nextToken() // consume (
 			p.nextToken() // move to index name
 			indexName := p.curToken.Literal
-
+			
 			// Check for nested (columns) list
 			if p.peekTokenIs(token.LPAREN) {
 				p.nextToken() // consume (
@@ -2740,7 +2739,7 @@ func (p *Parser) parseTableHints() []string {
 			}
 			p.expectPeek(token.RPAREN) // consume outer )
 		}
-
+		
 		hints = append(hints, hint)
 
 		if !p.peekTokenIs(token.COMMA) {
@@ -2800,9 +2799,8 @@ func (p *Parser) parseTableSample() *ast.TableSampleClause {
 	return ts
 }
 
-// parseOpenJsonColumns parses the column definitions in OPENJSON/OPENXML WITH clause
-// OPENJSON syntax: col_name datatype ['$.path'] [AS JSON], ...
-// OPENXML syntax: col_name datatype ['@attr' or 'element'], ...
+// parseOpenJsonColumns parses the column definitions in OPENJSON WITH clause
+// Syntax: col_name datatype ['$.path'] [AS JSON], ...
 func (p *Parser) parseOpenJsonColumns() []*ast.OpenJsonColumn {
 	var columns []*ast.OpenJsonColumn
 
@@ -3059,7 +3057,7 @@ func (p *Parser) parseGroupingSet() ast.Expression {
 // parseCube parses CUBE(col1, col2)
 func (p *Parser) parseCube() ast.Expression {
 	expr := &ast.CubeExpression{Token: p.curToken}
-
+	
 	if !p.expectPeek(token.LPAREN) {
 		return nil
 	}
@@ -3088,7 +3086,7 @@ func (p *Parser) parseCube() ast.Expression {
 // parseRollup parses ROLLUP(col1, col2)
 func (p *Parser) parseRollup() ast.Expression {
 	expr := &ast.RollupExpression{Token: p.curToken}
-
+	
 	if !p.expectPeek(token.LPAREN) {
 		return nil
 	}
@@ -3415,10 +3413,10 @@ func (p *Parser) parseSetClauses() []*ast.SetClause {
 
 func (p *Parser) parseSetClause() *ast.SetClause {
 	clause := &ast.SetClause{}
-
+	
 	// Parse the column (might be qualified like dbo.Table.Column)
 	clause.Column = p.parseQualifiedIdentifier()
-
+	
 	// Check for XML method call: column.method(args)
 	// In this case, parseQualifiedIdentifier consumed "ProductXml.modify"
 	// and the next token is (
@@ -3428,7 +3426,7 @@ func (p *Parser) parseSetClause() *ast.SetClause {
 		// We need to parse the arguments
 		p.nextToken() // consume (
 		p.nextToken() // move to first argument
-
+		
 		// Parse the method argument (usually a string)
 		var args []ast.Expression
 		if !p.curTokenIs(token.RPAREN) {
@@ -3439,16 +3437,16 @@ func (p *Parser) parseSetClause() *ast.SetClause {
 				args = append(args, p.parseExpression(LOWEST))
 			}
 		}
-
+		
 		if !p.expectPeek(token.RPAREN) {
 			return nil
 		}
-
+		
 		clause.IsMethodCall = true
 		clause.MethodArgs = args
 		return clause
 	}
-
+	
 	// Accept = or compound assignment operators
 	clause.Operator = p.peekToken.Literal
 	if p.peekTokenIs(token.EQ) ||
@@ -3587,7 +3585,7 @@ func (p *Parser) parseMergeStatement() ast.Statement {
 			// Now on ), move past it
 		}
 	}
-
+	
 	if p.peekTokenIs(token.INTO) {
 		p.nextToken()
 	}
@@ -3599,7 +3597,7 @@ func (p *Parser) parseMergeStatement() ast.Statement {
 	if p.peekTokenIs(token.WITH) {
 		p.nextToken() // consume WITH
 		if p.peekTokenIs(token.LPAREN) {
-			p.nextToken()           // consume (
+			p.nextToken() // consume (
 			_ = p.parseTableHints() // parse and discard hints for now
 		}
 	}
@@ -3668,7 +3666,7 @@ func (p *Parser) parseMergeStatement() ast.Statement {
 
 	// Check for column list after alias: AS source (col1, col2, ...)
 	if p.peekTokenIs(token.LPAREN) {
-		p.nextToken()               // consume (
+		p.nextToken() // consume (
 		_ = p.parseIdentifierList() // parse and discard column list for now
 	}
 
@@ -3889,6 +3887,11 @@ func (p *Parser) parseVariableDef() *ast.VariableDef {
 		return varDef
 	}
 
+	// Skip optional AS keyword (DECLARE @var AS TYPE is valid T-SQL)
+	if p.curTokenIs(token.AS) {
+		p.nextToken()
+	}
+
 	varDef.DataType = p.parseDataType()
 
 	// Check for initialization
@@ -3939,14 +3942,14 @@ func (p *Parser) parseTableTypeDefinition() *ast.TableTypeDefinition {
 
 func (p *Parser) parseDataType() *ast.DataType {
 	dt := &ast.DataType{Name: strings.ToUpper(p.curToken.Literal)}
-
+	
 	// Check for qualified type name (e.g., dbo.MyType)
 	for p.peekTokenIs(token.DOT) {
 		p.nextToken() // consume dot
 		p.nextToken() // move to next part
 		dt.Name += "." + p.curToken.Literal
 	}
-
+	
 	// Check for length/precision or typed XML schema
 	if p.peekTokenIs(token.LPAREN) {
 		p.nextToken()
@@ -4061,7 +4064,7 @@ func (p *Parser) parseSetStatement() ast.Statement {
 
 	// For variable assignment
 	stmt := &ast.SetStatement{Token: setToken}
-
+	
 	// For variable assignment, parse the variable/expression
 	if p.curTokenIs(token.VARIABLE) || p.curTokenIs(token.TEMPVAR) {
 		// Check if this is a method call like @xml.modify(...)
@@ -4129,7 +4132,7 @@ func (p *Parser) parseSetContextInfo(setToken token.Token) ast.Statement {
 
 func (p *Parser) parseSetTransactionIsolation(setToken token.Token) ast.Statement {
 	stmt := &ast.SetTransactionIsolationStatement{Token: setToken}
-
+	
 	// Skip TRANSACTION ISOLATION LEVEL
 	if !p.expectPeek(token.ISOLATION) {
 		return nil
@@ -4138,7 +4141,7 @@ func (p *Parser) parseSetTransactionIsolation(setToken token.Token) ast.Statemen
 		return nil
 	}
 	p.nextToken()
-
+	
 	// Parse level: READ UNCOMMITTED, READ COMMITTED, REPEATABLE READ, SERIALIZABLE, SNAPSHOT
 	var level string
 	switch strings.ToUpper(p.curToken.Literal) {
@@ -4160,10 +4163,10 @@ func (p *Parser) parseSetTransactionIsolation(setToken token.Token) ast.Statemen
 func (p *Parser) parseSetIdentityInsert(setToken token.Token) ast.Statement {
 	stmt := &ast.SetOptionStatement{Token: setToken, Option: "IDENTITY_INSERT"}
 	p.nextToken() // move past IDENTITY_INSERT
-
+	
 	stmt.Table = p.parseQualifiedIdentifier()
 	p.nextToken()
-
+	
 	// ON or OFF
 	stmt.Value = &ast.Identifier{Token: p.curToken, Value: strings.ToUpper(p.curToken.Literal)}
 	return stmt
@@ -4172,7 +4175,7 @@ func (p *Parser) parseSetIdentityInsert(setToken token.Token) ast.Statement {
 func (p *Parser) parseSetNumericOption(setToken token.Token, option string) ast.Statement {
 	stmt := &ast.SetOptionStatement{Token: setToken, Option: option}
 	p.nextToken() // move past option name
-
+	
 	stmt.Value = p.parseExpression(LOWEST)
 	return stmt
 }
@@ -4180,7 +4183,7 @@ func (p *Parser) parseSetNumericOption(setToken token.Token, option string) ast.
 func (p *Parser) parseSetStringOption(setToken token.Token, option string) ast.Statement {
 	stmt := &ast.SetOptionStatement{Token: setToken, Option: option}
 	p.nextToken() // move past option name
-
+	
 	stmt.Value = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 	return stmt
 }
@@ -4372,8 +4375,26 @@ func (p *Parser) parseBeginTransactionStatement() ast.Statement {
 func (p *Parser) parseReturnStatement() ast.Statement {
 	stmt := &ast.ReturnStatement{Token: p.curToken}
 
+	// Check if the next token starts a new statement or ends current context
+	// RETURN can be standalone (no value) or have an expression
 	if !p.peekTokenIs(token.SEMICOLON) && !p.peekTokenIs(token.EOF) &&
-		!p.peekTokenIs(token.END) {
+		!p.peekTokenIs(token.END) && !p.peekTokenIs(token.ELSE) &&
+		!p.peekTokenIs(token.GO) &&
+		// Statement-starting keywords
+		!p.peekTokenIs(token.IF) && !p.peekTokenIs(token.WHILE) &&
+		!p.peekTokenIs(token.BEGIN) && !p.peekTokenIs(token.DECLARE) &&
+		!p.peekTokenIs(token.SET) && !p.peekTokenIs(token.SELECT) &&
+		!p.peekTokenIs(token.INSERT) && !p.peekTokenIs(token.UPDATE) &&
+		!p.peekTokenIs(token.DELETE) && !p.peekTokenIs(token.EXEC) &&
+		!p.peekTokenIs(token.EXECUTE) && !p.peekTokenIs(token.PRINT) &&
+		!p.peekTokenIs(token.RETURN) && !p.peekTokenIs(token.BREAK) &&
+		!p.peekTokenIs(token.CONTINUE) && !p.peekTokenIs(token.THROW) &&
+		!p.peekTokenIs(token.RAISERROR) && !p.peekTokenIs(token.WAITFOR) &&
+		!p.peekTokenIs(token.FETCH_KW) && !p.peekTokenIs(token.OPEN) &&
+		!p.peekTokenIs(token.CLOSE) && !p.peekTokenIs(token.DEALLOCATE) &&
+		!p.peekTokenIs(token.CREATE) && !p.peekTokenIs(token.DROP) &&
+		!p.peekTokenIs(token.ALTER) && !p.peekTokenIs(token.TRUNCATE) &&
+		!p.peekTokenIs(token.WITH) && !p.peekTokenIs(token.MERGE) {
 		p.nextToken()
 		stmt.Value = p.parseExpression(LOWEST)
 	}
@@ -4412,14 +4433,14 @@ func (p *Parser) parseExecStatement() ast.Statement {
 		p.nextToken()
 		stmt.DynamicSQL = p.parseExpression(LOWEST)
 		p.expectPeek(token.RPAREN)
-
+		
 		// Check for AT linked_server
 		if p.peekTokenIs(token.AT) {
 			p.nextToken() // consume AT
 			p.nextToken() // move to server name
 			stmt.AtServer = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 		}
-
+		
 		return stmt
 	}
 
@@ -4687,8 +4708,8 @@ func (p *Parser) parseExecParameter() *ast.ExecParameter {
 
 	param.Value = p.parseExpression(LOWEST)
 
-	// Check for OUTPUT
-	if p.peekTokenIs(token.OUTPUT) {
+	// Check for OUTPUT or OUT (T-SQL accepts both)
+	if p.peekTokenIs(token.OUTPUT) || p.peekTokenIs(token.OUT) {
 		p.nextToken()
 		param.Output = true
 	}
@@ -5230,7 +5251,7 @@ func (p *Parser) parseIdentitySpec() *ast.IdentitySpec {
 	if p.peekTokenIs(token.LPAREN) {
 		p.nextToken()
 		p.nextToken()
-
+		
 		// Parse seed (may be negative)
 		negative := false
 		if p.curTokenIs(token.MINUS) {
@@ -5244,11 +5265,11 @@ func (p *Parser) parseIdentitySpec() *ast.IdentitySpec {
 			}
 			spec.Seed = seed
 		}
-
+		
 		if p.peekTokenIs(token.COMMA) {
 			p.nextToken()
 			p.nextToken()
-
+			
 			// Parse increment (may be negative)
 			negative = false
 			if p.curTokenIs(token.MINUS) {
@@ -5285,7 +5306,7 @@ func (p *Parser) parseInlineConstraint(ctype ast.ConstraintType) *ast.ColumnCons
 			clustered := false
 			constraint.IsClustered = &clustered
 		}
-
+		
 		// Check for HASH (memory-optimized tables)
 		if p.peekTokenIs(token.HASH) {
 			p.nextToken() // consume HASH
@@ -5729,7 +5750,7 @@ func (p *Parser) parseDropIndexStatement(dropToken token.Token) ast.Statement {
 		// Skip index name
 		p.nextToken() // consume ON
 		if p.curTokenIs(token.ON) {
-			p.nextToken()                // move to table name
+			p.nextToken() // move to table name
 			p.parseQualifiedIdentifier() // consume table name
 		}
 	}
@@ -5952,7 +5973,7 @@ func (p *Parser) parseAlterViewStatement(alterToken token.Token) ast.Statement {
 		return nil
 	}
 	p.nextToken()
-
+	
 	if p.curTokenIs(token.SELECT) {
 		stmt.AsSelect = p.parseSelectStatement()
 	} else if p.curTokenIs(token.WITH) {
@@ -5973,12 +5994,12 @@ func (p *Parser) parseAlterFunctionStatement(alterToken token.Token) ast.Stateme
 	if !p.expectPeek(token.LPAREN) {
 		return nil
 	}
-
+	
 	if !p.peekTokenIs(token.RPAREN) {
 		p.nextToken()
 		stmt.Parameters = p.parseParameterDefs()
 	}
-
+	
 	// Consume RPAREN
 	if !p.expectPeek(token.RPAREN) {
 		return nil
@@ -6191,7 +6212,7 @@ func (p *Parser) parseAlterTableAction() *ast.AlterTableAction {
 			// Parse first column
 			col := p.parseColumnDefinition()
 			action.Columns = append(action.Columns, col)
-
+			
 			// Check for additional columns (comma-separated)
 			for p.peekTokenIs(token.COMMA) {
 				p.nextToken() // consume comma
@@ -6386,7 +6407,7 @@ func (p *Parser) parseCreateViewStatement(createToken token.Token) ast.Statement
 		return nil
 	}
 	p.nextToken()
-
+	
 	if p.curTokenIs(token.SELECT) {
 		stmt.AsSelect = p.parseSelectStatement()
 	} else if p.curTokenIs(token.WITH) {
@@ -6394,7 +6415,7 @@ func (p *Parser) parseCreateViewStatement(createToken token.Token) ast.Statement
 	} else {
 		return nil
 	}
-
+	
 	// WITH CHECK OPTION (at the end)
 	if p.peekTokenIs(token.WITH) {
 		p.nextToken() // consume WITH
@@ -6406,7 +6427,7 @@ func (p *Parser) parseCreateViewStatement(createToken token.Token) ast.Statement
 			}
 		}
 	}
-
+	
 	return stmt
 }
 
@@ -6430,7 +6451,7 @@ func (p *Parser) parseCreateIndexStatement(createToken token.Token, isUnique boo
 	if p.peekTokenIs(token.LPAREN) {
 		p.nextToken() // consume (
 		p.nextToken()
-
+		
 		for !p.curTokenIs(token.RPAREN) && !p.curTokenIs(token.EOF) {
 			col := &ast.IndexColumn{}
 			col.Name = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
@@ -6442,7 +6463,7 @@ func (p *Parser) parseCreateIndexStatement(createToken token.Token, isUnique boo
 				col.Descending = true
 			}
 			stmt.Columns = append(stmt.Columns, col)
-
+			
 			if p.peekTokenIs(token.COMMA) {
 				p.nextToken()
 				p.nextToken()
@@ -6581,16 +6602,16 @@ func (p *Parser) parseCreateXmlIndexStatement(createToken token.Token, isPrimary
 func (p *Parser) parseCreateDefaultStatement(createToken token.Token) ast.Statement {
 	stmt := &ast.CreateDefaultStatement{Token: createToken}
 	p.nextToken() // move past DEFAULT
-
+	
 	stmt.Name = p.parseQualifiedIdentifier()
-
+	
 	if !p.expectPeek(token.AS) {
 		return nil
 	}
 	p.nextToken()
-
+	
 	stmt.Value = p.parseExpression(LOWEST)
-
+	
 	return stmt
 }
 
@@ -6598,16 +6619,16 @@ func (p *Parser) parseCreateDefaultStatement(createToken token.Token) ast.Statem
 func (p *Parser) parseCreateRuleStatement() ast.Statement {
 	stmt := &ast.CreateRuleStatement{Token: p.curToken}
 	p.nextToken() // move past CREATE RULE
-
+	
 	stmt.Name = p.parseQualifiedIdentifier()
-
+	
 	if !p.expectPeek(token.AS) {
 		return nil
 	}
 	p.nextToken()
-
+	
 	stmt.Condition = p.parseExpression(LOWEST)
-
+	
 	return stmt
 }
 
@@ -6621,12 +6642,12 @@ func (p *Parser) parseCreateFunctionStatement(createToken token.Token) ast.State
 	if !p.expectPeek(token.LPAREN) {
 		return nil
 	}
-
+	
 	if !p.peekTokenIs(token.RPAREN) {
 		p.nextToken()
 		stmt.Parameters = p.parseParameterDefs()
 	}
-
+	
 	// Consume RPAREN
 	if !p.expectPeek(token.RPAREN) {
 		return nil
@@ -6732,7 +6753,7 @@ func (p *Parser) parseCreateTriggerStatement(createToken token.Token) ast.Statem
 		return nil
 	}
 	p.nextToken()
-
+	
 	// Check for DDL trigger scope
 	if p.curTokenIs(token.DATABASE) {
 		stmt.OnDatabase = true
@@ -6837,7 +6858,7 @@ func (p *Parser) parseCreateTypeStatement(createToken token.Token) ast.Statement
 			stmt.IsTableType = true
 			// Parse table definition - parseTableTypeDefinition expects to call expectPeek(LPAREN)
 			stmt.TableDef = p.parseTableTypeDefinition()
-
+			
 			// Check for WITH clause (e.g., WITH (MEMORY_OPTIMIZED = ON))
 			if p.peekTokenIs(token.WITH) {
 				p.nextToken() // consume WITH
@@ -6860,7 +6881,7 @@ func (p *Parser) parseCreateTypeStatement(createToken token.Token) ast.Statement
 		p.nextToken() // consume FROM
 		p.nextToken()
 		stmt.BaseType = p.parseDataType()
-
+		
 		// Parse NULL/NOT NULL
 		if p.peekTokenIs(token.NOT) {
 			p.nextToken()
@@ -7240,7 +7261,7 @@ func (p *Parser) parseGrantStatement() ast.Statement {
 		}
 
 		stmt.OnObject = p.parseQualifiedIdentifier()
-
+		
 		// Check for column list: (col1, col2, ...)
 		if p.peekTokenIs(token.LPAREN) {
 			p.nextToken() // consume (
@@ -7258,7 +7279,7 @@ func (p *Parser) parseGrantStatement() ast.Statement {
 			}
 			p.expectPeek(token.RPAREN)
 		}
-
+		
 		p.nextToken() // move past object or )
 	}
 
@@ -7315,7 +7336,7 @@ func (p *Parser) parseRevokeStatement() ast.Statement {
 		}
 
 		stmt.OnObject = p.parseQualifiedIdentifier()
-
+		
 		// Check for column list: (col1, col2, ...)
 		if p.peekTokenIs(token.LPAREN) {
 			p.nextToken() // consume (
@@ -7333,7 +7354,7 @@ func (p *Parser) parseRevokeStatement() ast.Statement {
 			}
 			p.expectPeek(token.RPAREN)
 		}
-
+		
 		p.nextToken() // move past object or )
 	}
 
@@ -7372,7 +7393,7 @@ func (p *Parser) parseDenyStatement() ast.Statement {
 		}
 
 		stmt.OnObject = p.parseQualifiedIdentifier()
-
+		
 		// Check for column list: (col1, col2, ...)
 		if p.peekTokenIs(token.LPAREN) {
 			p.nextToken() // consume (
@@ -7390,7 +7411,7 @@ func (p *Parser) parseDenyStatement() ast.Statement {
 			}
 			p.expectPeek(token.RPAREN)
 		}
-
+		
 		p.nextToken() // move past object or )
 	}
 
@@ -7416,7 +7437,7 @@ func (p *Parser) parsePermissionList() []string {
 	for {
 		// Permissions can be multi-word like VIEW DEFINITION, ALTER ANY DATABASE
 		var perm strings.Builder
-		for !p.curTokenIs(token.COMMA) && !p.curTokenIs(token.ON) &&
+		for !p.curTokenIs(token.COMMA) && !p.curTokenIs(token.ON) && 
 			!p.curTokenIs(token.TO) && !p.curTokenIs(token.FROM) &&
 			!p.curTokenIs(token.EOF) && !p.curTokenIs(token.SEMICOLON) {
 			if perm.Len() > 0 {
@@ -7498,14 +7519,14 @@ func (p *Parser) parseCreateLoginStatement(createToken token.Token) ast.Statemen
 func (p *Parser) parseLoginOptions(stmt *ast.CreateLoginStatement) {
 	for !p.curTokenIs(token.EOF) && !p.curTokenIs(token.SEMICOLON) && !p.curTokenIs(token.GO) {
 		optName := strings.ToUpper(p.curToken.Literal)
-
+		
 		if p.peekTokenIs(token.EQ) {
 			p.nextToken() // move past option name to =
 			p.nextToken() // move past = to value
-
+			
 			// Consume the value (string, number, identifier, hex, etc.)
 			p.nextToken()
-
+			
 			// Consume any modifiers like HASHED, MUST_CHANGE, etc.
 			for p.curTokenIs(token.IDENT) {
 				upper := strings.ToUpper(p.curToken.Literal)
@@ -7521,7 +7542,7 @@ func (p *Parser) parseLoginOptions(stmt *ast.CreateLoginStatement) {
 			// or standalone options
 			p.nextToken()
 		}
-
+		
 		if p.curTokenIs(token.COMMA) {
 			p.nextToken()
 		} else {
@@ -7549,7 +7570,7 @@ func (p *Parser) parseAlterLoginStatement(alterToken token.Token) ast.Statement 
 		p.nextToken() // move past WITH
 		for !p.curTokenIs(token.EOF) && !p.curTokenIs(token.SEMICOLON) && !p.curTokenIs(token.GO) {
 			optName := strings.ToUpper(p.curToken.Literal)
-
+			
 			// Handle "NO CREDENTIAL" special case
 			if optName == "NO" {
 				p.nextToken() // skip NO
@@ -7558,18 +7579,18 @@ func (p *Parser) parseAlterLoginStatement(alterToken token.Token) ast.Statement 
 				}
 				continue
 			}
-
+			
 			if p.peekTokenIs(token.EQ) {
 				p.nextToken() // move past option name to =
 				p.nextToken() // move past = to value
-
+				
 				if optName == "PASSWORD" {
 					if p.curTokenIs(token.STRING) || p.curTokenIs(token.NSTRING) {
 						stmt.Password = p.curToken.Literal
 					}
 				}
 				p.nextToken() // move past value
-
+				
 				// Handle modifiers like OLD_PASSWORD = ..., MUST_CHANGE, UNLOCK, HASHED
 				for p.curTokenIs(token.IDENT) && !p.curTokenIs(token.EOF) {
 					upper := strings.ToUpper(p.curToken.Literal)
@@ -7590,7 +7611,7 @@ func (p *Parser) parseAlterLoginStatement(alterToken token.Token) ast.Statement 
 			} else {
 				p.nextToken()
 			}
-
+			
 			if p.curTokenIs(token.COMMA) {
 				p.nextToken()
 			} else {
@@ -7768,7 +7789,7 @@ func (p *Parser) parseCreateServerRoleStatement(createToken token.Token) ast.Sta
 func (p *Parser) parseCreateCredentialStatement(createToken token.Token) ast.Statement {
 	stmt := &ast.CreateCredentialStatement{Token: createToken}
 	p.nextToken() // move past CREDENTIAL (which is the name in this context)
-
+	
 	// Wait, the current token is CREDENTIAL as IDENT, and we need the name after it
 	// Actually, when we get here, curToken is "CREDENTIAL" identifier, so the name follows
 	stmt.Name = p.curToken.Literal
@@ -7810,7 +7831,7 @@ func (p *Parser) parseCreateCredentialStatement(createToken token.Token) ast.Sta
 // parseCreateDatabaseOrScopedCredential handles CREATE DATABASE and CREATE DATABASE SCOPED CREDENTIAL
 func (p *Parser) parseCreateDatabaseOrScopedCredential(createToken token.Token) ast.Statement {
 	p.nextToken() // move past DATABASE
-
+	
 	// Check if next is SCOPED (as IDENT)
 	if p.curTokenIs(token.IDENT) && strings.ToUpper(p.curToken.Literal) == "SCOPED" {
 		p.nextToken() // move past SCOPED
@@ -7819,7 +7840,7 @@ func (p *Parser) parseCreateDatabaseOrScopedCredential(createToken token.Token) 
 			return p.parseCreateDatabaseScopedCredentialStatement(createToken)
 		}
 	}
-
+	
 	// Otherwise it's CREATE DATABASE - skip to semicolon for now
 	// (CREATE DATABASE has complex syntax we don't fully support yet)
 	for !p.curTokenIs(token.EOF) && !p.curTokenIs(token.SEMICOLON) && !p.curTokenIs(token.GO) {
@@ -8763,12 +8784,12 @@ func (p *Parser) parseAlterPartitionSchemeStatement(alterToken token.Token) ast.
 // parseContainsExpression parses CONTAINS(column, 'search term')
 func (p *Parser) parseContainsExpression() ast.Expression {
 	expr := &ast.ContainsExpression{Token: p.curToken}
-
+	
 	if !p.expectPeek(token.LPAREN) {
 		return nil
 	}
 	p.nextToken() // move past (
-
+	
 	// Parse column(s) - could be single column, (col1, col2), or *
 	if p.curTokenIs(token.ASTERISK) {
 		expr.Columns = []string{"*"}
@@ -8789,15 +8810,15 @@ func (p *Parser) parseContainsExpression() ast.Expression {
 		expr.Columns = []string{p.curToken.Literal}
 		p.nextToken()
 	}
-
+	
 	// Expect comma
 	if p.curTokenIs(token.COMMA) {
 		p.nextToken()
 	}
-
+	
 	// Parse search term
 	expr.SearchTerm = p.parseExpression(LOWEST)
-
+	
 	// Check for LANGUAGE option
 	if p.peekTokenIs(token.COMMA) {
 		p.nextToken() // move to comma
@@ -8807,23 +8828,23 @@ func (p *Parser) parseContainsExpression() ast.Expression {
 			expr.Language = p.curToken.Literal
 		}
 	}
-
+	
 	if p.peekTokenIs(token.RPAREN) {
 		p.nextToken()
 	}
-
+	
 	return expr
 }
 
 // parseFreetextExpression parses FREETEXT(column, 'search term')
 func (p *Parser) parseFreetextExpression() ast.Expression {
 	expr := &ast.FreetextExpression{Token: p.curToken}
-
+	
 	if !p.expectPeek(token.LPAREN) {
 		return nil
 	}
 	p.nextToken() // move past (
-
+	
 	// Parse column(s) - could be single column, (col1, col2), or *
 	if p.curTokenIs(token.ASTERISK) {
 		expr.Columns = []string{"*"}
@@ -8844,15 +8865,15 @@ func (p *Parser) parseFreetextExpression() ast.Expression {
 		expr.Columns = []string{p.curToken.Literal}
 		p.nextToken()
 	}
-
+	
 	// Expect comma
 	if p.curTokenIs(token.COMMA) {
 		p.nextToken()
 	}
-
+	
 	// Parse search term
 	expr.SearchTerm = p.parseExpression(LOWEST)
-
+	
 	// Check for LANGUAGE option
 	if p.peekTokenIs(token.COMMA) {
 		p.nextToken() // move to comma
@@ -8862,32 +8883,32 @@ func (p *Parser) parseFreetextExpression() ast.Expression {
 			expr.Language = p.curToken.Literal
 		}
 	}
-
+	
 	if p.peekTokenIs(token.RPAREN) {
 		p.nextToken()
 	}
-
+	
 	return expr
 }
 
 // parseContainsTableExpression parses CONTAINSTABLE(table, column, 'search term')
 func (p *Parser) parseContainsTableExpression() ast.Expression {
 	expr := &ast.ContainsTableExpression{Token: p.curToken}
-
+	
 	if !p.expectPeek(token.LPAREN) {
 		return nil
 	}
 	p.nextToken() // move past (
-
+	
 	// Parse table name
 	expr.TableName = p.curToken.Literal
 	p.nextToken()
-
+	
 	// Expect comma
 	if p.curTokenIs(token.COMMA) {
 		p.nextToken()
 	}
-
+	
 	// Parse column(s)
 	if p.curTokenIs(token.ASTERISK) {
 		expr.Columns = []string{"*"}
@@ -8906,40 +8927,40 @@ func (p *Parser) parseContainsTableExpression() ast.Expression {
 		expr.Columns = []string{p.curToken.Literal}
 		p.nextToken()
 	}
-
+	
 	// Expect comma
 	if p.curTokenIs(token.COMMA) {
 		p.nextToken()
 	}
-
+	
 	// Parse search term
 	expr.SearchTerm = p.parseExpression(LOWEST)
-
+	
 	if p.peekTokenIs(token.RPAREN) {
 		p.nextToken()
 	}
-
+	
 	return expr
 }
 
 // parseFreetextTableExpression parses FREETEXTTABLE(table, column, 'search term')
 func (p *Parser) parseFreetextTableExpression() ast.Expression {
 	expr := &ast.FreetextTableExpression{Token: p.curToken}
-
+	
 	if !p.expectPeek(token.LPAREN) {
 		return nil
 	}
 	p.nextToken() // move past (
-
+	
 	// Parse table name
 	expr.TableName = p.curToken.Literal
 	p.nextToken()
-
+	
 	// Expect comma
 	if p.curTokenIs(token.COMMA) {
 		p.nextToken()
 	}
-
+	
 	// Parse column(s)
 	if p.curTokenIs(token.ASTERISK) {
 		expr.Columns = []string{"*"}
@@ -8958,32 +8979,32 @@ func (p *Parser) parseFreetextTableExpression() ast.Expression {
 		expr.Columns = []string{p.curToken.Literal}
 		p.nextToken()
 	}
-
+	
 	// Expect comma
 	if p.curTokenIs(token.COMMA) {
 		p.nextToken()
 	}
-
+	
 	// Parse search term
 	expr.SearchTerm = p.parseExpression(LOWEST)
-
+	
 	if p.peekTokenIs(token.RPAREN) {
 		p.nextToken()
 	}
-
+	
 	return expr
 }
 
 // parseCreateFulltextStatement handles CREATE FULLTEXT CATALOG/INDEX
 func (p *Parser) parseCreateFulltextStatement(createToken token.Token) ast.Statement {
 	p.nextToken() // move past FULLTEXT
-
+	
 	if p.curTokenIs(token.CATALOG) {
 		return p.parseCreateFulltextCatalogStatement(createToken)
 	} else if p.curTokenIs(token.INDEX) {
 		return p.parseCreateFulltextIndexStatement(createToken)
 	}
-
+	
 	return nil
 }
 
@@ -8991,10 +9012,10 @@ func (p *Parser) parseCreateFulltextStatement(createToken token.Token) ast.State
 func (p *Parser) parseCreateFulltextCatalogStatement(createToken token.Token) ast.Statement {
 	stmt := &ast.CreateFulltextCatalogStatement{Token: createToken}
 	p.nextToken() // move past CATALOG
-
+	
 	stmt.Name = p.curToken.Literal
 	p.nextToken()
-
+	
 	// Parse optional clauses
 	for !p.curTokenIs(token.EOF) && !p.curTokenIs(token.SEMICOLON) {
 		if p.curTokenIs(token.ON) {
@@ -9018,7 +9039,7 @@ func (p *Parser) parseCreateFulltextCatalogStatement(createToken token.Token) as
 			break
 		}
 	}
-
+	
 	return stmt
 }
 
@@ -9026,25 +9047,25 @@ func (p *Parser) parseCreateFulltextCatalogStatement(createToken token.Token) as
 func (p *Parser) parseCreateFulltextIndexStatement(createToken token.Token) ast.Statement {
 	stmt := &ast.CreateFulltextIndexStatement{Token: createToken}
 	p.nextToken() // move past INDEX
-
+	
 	// Expect ON
 	if p.curTokenIs(token.ON) {
 		p.nextToken()
 	}
-
+	
 	// Parse table name
 	stmt.TableName = p.parseQualifiedIdentifier()
-
+	
 	// Parse column list
 	if p.peekTokenIs(token.LPAREN) {
 		p.nextToken() // move to (
 		p.nextToken() // move past (
-
+		
 		for !p.curTokenIs(token.RPAREN) && !p.curTokenIs(token.EOF) {
 			col := &ast.FulltextColumn{}
 			col.Name = p.curToken.Literal
 			p.nextToken()
-
+			
 			// Check for TYPE COLUMN or LANGUAGE
 			for strings.ToUpper(p.curToken.Literal) == "TYPE" || p.curTokenIs(token.LANGUAGE) {
 				if strings.ToUpper(p.curToken.Literal) == "TYPE" {
@@ -9060,16 +9081,16 @@ func (p *Parser) parseCreateFulltextIndexStatement(createToken token.Token) ast.
 					p.nextToken()
 				}
 			}
-
+			
 			stmt.Columns = append(stmt.Columns, col)
-
+			
 			if p.curTokenIs(token.COMMA) {
 				p.nextToken()
 			}
 		}
 		p.nextToken() // move past )
 	}
-
+	
 	// Parse KEY INDEX
 	if p.curTokenIs(token.KEY) {
 		p.nextToken() // move past KEY
@@ -9079,14 +9100,14 @@ func (p *Parser) parseCreateFulltextIndexStatement(createToken token.Token) ast.
 		stmt.KeyIndex = p.curToken.Literal
 		p.nextToken()
 	}
-
+	
 	// Parse ON catalog
 	if p.curTokenIs(token.ON) {
 		p.nextToken() // move past ON
 		stmt.OnCatalog = p.curToken.Literal
 		p.nextToken()
 	}
-
+	
 	// Parse WITH options
 	if p.curTokenIs(token.WITH) {
 		p.nextToken() // move past WITH
@@ -9104,18 +9125,18 @@ func (p *Parser) parseCreateFulltextIndexStatement(createToken token.Token) ast.
 			p.nextToken() // move past final )
 		}
 	}
-
+	
 	return stmt
 }
 
 // parseAlterFulltextStatement handles ALTER FULLTEXT INDEX
 func (p *Parser) parseAlterFulltextStatement(alterToken token.Token) ast.Statement {
 	p.nextToken() // move past FULLTEXT
-
+	
 	if p.curTokenIs(token.INDEX) {
 		return p.parseAlterFulltextIndexStatement(alterToken)
 	}
-
+	
 	return nil
 }
 
@@ -9123,40 +9144,40 @@ func (p *Parser) parseAlterFulltextStatement(alterToken token.Token) ast.Stateme
 func (p *Parser) parseAlterFulltextIndexStatement(alterToken token.Token) ast.Statement {
 	stmt := &ast.AlterFulltextIndexStatement{Token: alterToken}
 	p.nextToken() // move past INDEX
-
+	
 	// Expect ON
 	if p.curTokenIs(token.ON) {
 		p.nextToken()
 	}
-
+	
 	// Parse table name
 	stmt.TableName = p.parseQualifiedIdentifier()
 	p.nextToken()
-
+	
 	// Parse action: ADD, DROP, ENABLE, DISABLE, START, STOP, etc.
 	action := strings.ToUpper(p.curToken.Literal)
 	stmt.Action = action
 	p.nextToken()
-
+	
 	// For ADD/DROP, parse column list
 	if action == "ADD" || action == "DROP" {
 		if p.curTokenIs(token.LPAREN) {
 			p.nextToken() // move past (
-
+			
 			for !p.curTokenIs(token.RPAREN) && !p.curTokenIs(token.EOF) {
 				col := &ast.FulltextColumn{}
 				col.Name = p.curToken.Literal
 				p.nextToken()
-
+				
 				// Check for LANGUAGE
 				if p.curTokenIs(token.LANGUAGE) {
 					p.nextToken() // move past LANGUAGE
 					col.Language = p.curToken.Literal
 					p.nextToken()
 				}
-
+				
 				stmt.Columns = append(stmt.Columns, col)
-
+				
 				if p.curTokenIs(token.COMMA) {
 					p.nextToken()
 				}
@@ -9164,20 +9185,20 @@ func (p *Parser) parseAlterFulltextIndexStatement(alterToken token.Token) ast.St
 			p.nextToken() // move past )
 		}
 	}
-
+	
 	return stmt
 }
 
 // parseDropFulltextStatement handles DROP FULLTEXT INDEX/CATALOG
 func (p *Parser) parseDropFulltextStatement(dropToken token.Token) ast.Statement {
 	p.nextToken() // move past FULLTEXT
-
+	
 	if p.curTokenIs(token.INDEX) {
 		return p.parseDropFulltextIndexStatement(dropToken)
 	} else if p.curTokenIs(token.CATALOG) {
 		return p.parseDropFulltextCatalogStatement(dropToken)
 	}
-
+	
 	return nil
 }
 
@@ -9185,15 +9206,15 @@ func (p *Parser) parseDropFulltextStatement(dropToken token.Token) ast.Statement
 func (p *Parser) parseDropFulltextIndexStatement(dropToken token.Token) ast.Statement {
 	stmt := &ast.DropFulltextIndexStatement{Token: dropToken}
 	p.nextToken() // move past INDEX
-
+	
 	// Expect ON
 	if p.curTokenIs(token.ON) {
 		p.nextToken()
 	}
-
+	
 	// Parse table name
 	stmt.TableName = p.parseQualifiedIdentifier()
-
+	
 	return stmt
 }
 
@@ -9201,10 +9222,10 @@ func (p *Parser) parseDropFulltextIndexStatement(dropToken token.Token) ast.Stat
 func (p *Parser) parseDropFulltextCatalogStatement(dropToken token.Token) ast.Statement {
 	stmt := &ast.DropFulltextCatalogStatement{Token: dropToken}
 	p.nextToken() // move past CATALOG
-
+	
 	stmt.Name = p.curToken.Literal
 	p.nextToken()
-
+	
 	return stmt
 }
 
@@ -9216,14 +9237,14 @@ func (p *Parser) parseDropFulltextCatalogStatement(dropToken token.Token) ast.St
 func (p *Parser) parseCreateResourcePoolStatement(createToken token.Token) ast.Statement {
 	stmt := &ast.CreateResourcePoolStatement{Token: createToken, Options: make(map[string]string)}
 	p.nextToken() // move past RESOURCE
-
+	
 	if p.curTokenIs(token.POOL) {
 		p.nextToken() // move past POOL
 	}
-
+	
 	stmt.Name = p.curToken.Literal
 	p.nextToken()
-
+	
 	// Parse WITH options
 	if p.curTokenIs(token.WITH) {
 		p.nextToken() // move past WITH
@@ -9245,20 +9266,20 @@ func (p *Parser) parseCreateResourcePoolStatement(createToken token.Token) ast.S
 			p.nextToken() // move past )
 		}
 	}
-
+	
 	return stmt
 }
 
 // parseAlterResourceStatement handles ALTER RESOURCE POOL and ALTER RESOURCE GOVERNOR
 func (p *Parser) parseAlterResourceStatement(alterToken token.Token) ast.Statement {
 	p.nextToken() // move past RESOURCE
-
+	
 	if p.curTokenIs(token.POOL) {
 		return p.parseAlterResourcePoolStatement(alterToken)
 	} else if p.curTokenIs(token.GOVERNOR) {
 		return p.parseAlterResourceGovernorStatement(alterToken)
 	}
-
+	
 	return nil
 }
 
@@ -9266,10 +9287,10 @@ func (p *Parser) parseAlterResourceStatement(alterToken token.Token) ast.Stateme
 func (p *Parser) parseAlterResourcePoolStatement(alterToken token.Token) ast.Statement {
 	stmt := &ast.AlterResourcePoolStatement{Token: alterToken, Options: make(map[string]string)}
 	p.nextToken() // move past POOL
-
+	
 	stmt.Name = p.curToken.Literal
 	p.nextToken()
-
+	
 	// Parse WITH options
 	if p.curTokenIs(token.WITH) {
 		p.nextToken() // move past WITH
@@ -9291,7 +9312,7 @@ func (p *Parser) parseAlterResourcePoolStatement(alterToken token.Token) ast.Sta
 			p.nextToken() // move past )
 		}
 	}
-
+	
 	return stmt
 }
 
@@ -9299,7 +9320,7 @@ func (p *Parser) parseAlterResourcePoolStatement(alterToken token.Token) ast.Sta
 func (p *Parser) parseAlterResourceGovernorStatement(alterToken token.Token) ast.Statement {
 	stmt := &ast.AlterResourceGovernorStatement{Token: alterToken}
 	p.nextToken() // move past GOVERNOR
-
+	
 	// Check for action or WITH clause
 	if p.curTokenIs(token.RECONFIGURE) {
 		stmt.Action = "RECONFIGURE"
@@ -9342,7 +9363,7 @@ func (p *Parser) parseAlterResourceGovernorStatement(alterToken token.Token) ast
 			}
 		}
 	}
-
+	
 	return stmt
 }
 
@@ -9350,14 +9371,14 @@ func (p *Parser) parseAlterResourceGovernorStatement(alterToken token.Token) ast
 func (p *Parser) parseDropResourcePoolStatement(dropToken token.Token) ast.Statement {
 	stmt := &ast.DropResourcePoolStatement{Token: dropToken}
 	p.nextToken() // move past RESOURCE
-
+	
 	if p.curTokenIs(token.POOL) {
 		p.nextToken() // move past POOL
 	}
-
+	
 	stmt.Name = p.curToken.Literal
 	p.nextToken()
-
+	
 	return stmt
 }
 
@@ -9365,14 +9386,14 @@ func (p *Parser) parseDropResourcePoolStatement(dropToken token.Token) ast.State
 func (p *Parser) parseCreateWorkloadGroupStatement(createToken token.Token) ast.Statement {
 	stmt := &ast.CreateWorkloadGroupStatement{Token: createToken, Options: make(map[string]string)}
 	p.nextToken() // move past WORKLOAD
-
+	
 	if p.curTokenIs(token.GROUP) {
 		p.nextToken() // move past GROUP
 	}
-
+	
 	stmt.Name = p.curToken.Literal
 	p.nextToken()
-
+	
 	// Parse WITH options (optional)
 	if p.curTokenIs(token.WITH) {
 		p.nextToken() // move past WITH
@@ -9394,14 +9415,14 @@ func (p *Parser) parseCreateWorkloadGroupStatement(createToken token.Token) ast.
 			p.nextToken() // move past )
 		}
 	}
-
+	
 	// Parse USING pool_name
 	if p.curTokenIs(token.USING) {
 		p.nextToken() // move past USING
 		stmt.PoolName = p.curToken.Literal
 		p.nextToken()
 	}
-
+	
 	return stmt
 }
 
@@ -9409,14 +9430,14 @@ func (p *Parser) parseCreateWorkloadGroupStatement(createToken token.Token) ast.
 func (p *Parser) parseAlterWorkloadGroupStatement(alterToken token.Token) ast.Statement {
 	stmt := &ast.AlterWorkloadGroupStatement{Token: alterToken, Options: make(map[string]string)}
 	p.nextToken() // move past WORKLOAD
-
+	
 	if p.curTokenIs(token.GROUP) {
 		p.nextToken() // move past GROUP
 	}
-
+	
 	stmt.Name = p.curToken.Literal
 	p.nextToken()
-
+	
 	// Parse WITH options (optional)
 	if p.curTokenIs(token.WITH) {
 		p.nextToken() // move past WITH
@@ -9438,14 +9459,14 @@ func (p *Parser) parseAlterWorkloadGroupStatement(alterToken token.Token) ast.St
 			p.nextToken() // move past )
 		}
 	}
-
+	
 	// Parse USING pool_name
 	if p.curTokenIs(token.USING) {
 		p.nextToken() // move past USING
 		stmt.PoolName = p.curToken.Literal
 		p.nextToken()
 	}
-
+	
 	return stmt
 }
 
@@ -9453,14 +9474,14 @@ func (p *Parser) parseAlterWorkloadGroupStatement(alterToken token.Token) ast.St
 func (p *Parser) parseDropWorkloadGroupStatement(dropToken token.Token) ast.Statement {
 	stmt := &ast.DropWorkloadGroupStatement{Token: dropToken}
 	p.nextToken() // move past WORKLOAD
-
+	
 	if p.curTokenIs(token.GROUP) {
 		p.nextToken() // move past GROUP
 	}
-
+	
 	stmt.Name = p.curToken.Literal
 	p.nextToken()
-
+	
 	return stmt
 }
 
@@ -9468,14 +9489,14 @@ func (p *Parser) parseDropWorkloadGroupStatement(dropToken token.Token) ast.Stat
 func (p *Parser) parseCreateAvailabilityGroupStatement(createToken token.Token) ast.Statement {
 	stmt := &ast.CreateAvailabilityGroupStatement{Token: createToken}
 	p.nextToken() // move past AVAILABILITY
-
+	
 	if p.curTokenIs(token.GROUP) {
 		p.nextToken() // move past GROUP
 	}
-
+	
 	stmt.Name = p.curToken.Literal
 	p.nextToken()
-
+	
 	// Parse FOR DATABASE clause (optional)
 	if p.curTokenIs(token.FOR) {
 		p.nextToken() // move past FOR
@@ -9493,16 +9514,16 @@ func (p *Parser) parseCreateAvailabilityGroupStatement(createToken token.Token) 
 			}
 		}
 	}
-
+	
 	// Parse REPLICA ON clauses
 	for p.curTokenIs(token.REPLICA) {
 		p.nextToken() // move past REPLICA
 		if p.curTokenIs(token.ON) {
 			p.nextToken() // move past ON
 		}
-
+		
 		replica := &ast.AvailabilityReplica{Options: make(map[string]string)}
-
+		
 		// Server name (may be quoted)
 		if p.curTokenIs(token.STRING) || p.curTokenIs(token.NSTRING) {
 			replica.ServerName = p.curToken.Literal
@@ -9510,7 +9531,7 @@ func (p *Parser) parseCreateAvailabilityGroupStatement(createToken token.Token) 
 			replica.ServerName = p.curToken.Literal
 		}
 		p.nextToken()
-
+		
 		// Parse WITH (options)
 		if p.curTokenIs(token.WITH) {
 			p.nextToken() // move past WITH
@@ -9522,7 +9543,7 @@ func (p *Parser) parseCreateAvailabilityGroupStatement(createToken token.Token) 
 					if p.curTokenIs(token.EQ) {
 						p.nextToken() // move past =
 					}
-
+					
 					// Handle special options
 					if optName == "ENDPOINT_URL" {
 						if p.curTokenIs(token.STRING) || p.curTokenIs(token.NSTRING) {
@@ -9545,15 +9566,15 @@ func (p *Parser) parseCreateAvailabilityGroupStatement(createToken token.Token) 
 				p.nextToken() // move past )
 			}
 		}
-
+		
 		stmt.Replicas = append(stmt.Replicas, replica)
-
+		
 		// Check for another REPLICA or comma-separated replica
 		if p.curTokenIs(token.COMMA) {
 			p.nextToken()
 		}
 	}
-
+	
 	return stmt
 }
 
@@ -9561,17 +9582,17 @@ func (p *Parser) parseCreateAvailabilityGroupStatement(createToken token.Token) 
 func (p *Parser) parseAlterAvailabilityGroupStatement(alterToken token.Token) ast.Statement {
 	stmt := &ast.AlterAvailabilityGroupStatement{Token: alterToken}
 	p.nextToken() // move past AVAILABILITY
-
+	
 	if p.curTokenIs(token.GROUP) {
 		p.nextToken() // move past GROUP
 	}
-
+	
 	stmt.Name = p.curToken.Literal
 	p.nextToken()
-
+	
 	// Parse action
 	action := strings.ToUpper(p.curToken.Literal)
-
+	
 	switch action {
 	case "ADD":
 		p.nextToken() // move past ADD
@@ -9630,7 +9651,7 @@ func (p *Parser) parseAlterAvailabilityGroupStatement(alterToken token.Token) as
 		stmt.Action = action
 		p.nextToken()
 	}
-
+	
 	return stmt
 }
 
@@ -9638,14 +9659,14 @@ func (p *Parser) parseAlterAvailabilityGroupStatement(alterToken token.Token) as
 func (p *Parser) parseDropAvailabilityGroupStatement(dropToken token.Token) ast.Statement {
 	stmt := &ast.DropAvailabilityGroupStatement{Token: dropToken}
 	p.nextToken() // move past AVAILABILITY
-
+	
 	if p.curTokenIs(token.GROUP) {
 		p.nextToken() // move past GROUP
 	}
-
+	
 	stmt.Name = p.curToken.Literal
 	p.nextToken()
-
+	
 	return stmt
 }
 
@@ -9657,21 +9678,21 @@ func (p *Parser) parseDropAvailabilityGroupStatement(dropToken token.Token) ast.
 func (p *Parser) parseCreateMessageTypeStatement(createToken token.Token) ast.Statement {
 	stmt := &ast.CreateMessageTypeStatement{Token: createToken}
 	p.nextToken() // move past MESSAGE
-
+	
 	if strings.ToUpper(p.curToken.Literal) == "TYPE" {
 		p.nextToken() // move past TYPE
 	}
-
+	
 	stmt.Name = p.curToken.Literal
 	p.nextToken()
-
+	
 	// Optional AUTHORIZATION
 	if p.curTokenIs(token.AUTHORIZATION) {
 		p.nextToken()
 		stmt.Authorization = p.curToken.Literal
 		p.nextToken()
 	}
-
+	
 	// VALIDATION = NONE | EMPTY | WELL_FORMED_XML | VALID_XML WITH SCHEMA COLLECTION
 	if p.curTokenIs(token.VALIDATION) {
 		p.nextToken() // move past VALIDATION
@@ -9681,7 +9702,7 @@ func (p *Parser) parseCreateMessageTypeStatement(createToken token.Token) ast.St
 		stmt.Validation = strings.ToUpper(p.curToken.Literal)
 		p.nextToken()
 	}
-
+	
 	return stmt
 }
 
@@ -9689,17 +9710,17 @@ func (p *Parser) parseCreateMessageTypeStatement(createToken token.Token) ast.St
 func (p *Parser) parseCreateContractStatement(createToken token.Token) ast.Statement {
 	stmt := &ast.CreateContractStatement{Token: createToken}
 	p.nextToken() // move past CONTRACT
-
+	
 	stmt.Name = p.curToken.Literal
 	p.nextToken()
-
+	
 	// Optional AUTHORIZATION
 	if p.curTokenIs(token.AUTHORIZATION) {
 		p.nextToken()
 		stmt.Authorization = p.curToken.Literal
 		p.nextToken()
 	}
-
+	
 	// Parse message types (message_type SENT BY INITIATOR|TARGET|ANY)
 	if p.curTokenIs(token.LPAREN) {
 		p.nextToken() // move past (
@@ -9707,7 +9728,7 @@ func (p *Parser) parseCreateContractStatement(createToken token.Token) ast.State
 			msg := &ast.ContractMessage{}
 			msg.MessageType = p.curToken.Literal
 			p.nextToken()
-
+			
 			// SENT BY
 			if p.curTokenIs(token.SENT) {
 				p.nextToken() // move past SENT
@@ -9717,16 +9738,16 @@ func (p *Parser) parseCreateContractStatement(createToken token.Token) ast.State
 				msg.SentBy = strings.ToUpper(p.curToken.Literal)
 				p.nextToken()
 			}
-
+			
 			stmt.Messages = append(stmt.Messages, msg)
-
+			
 			if p.curTokenIs(token.COMMA) {
 				p.nextToken()
 			}
 		}
 		p.nextToken() // move past )
 	}
-
+	
 	return stmt
 }
 
@@ -9734,9 +9755,9 @@ func (p *Parser) parseCreateContractStatement(createToken token.Token) ast.State
 func (p *Parser) parseCreateQueueStatement(createToken token.Token) ast.Statement {
 	stmt := &ast.CreateQueueStatement{Token: createToken, Options: make(map[string]string)}
 	p.nextToken() // move past QUEUE
-
+	
 	stmt.Name = p.parseQualifiedIdentifier()
-
+	
 	// Parse WITH options
 	if p.peekTokenIs(token.WITH) {
 		p.nextToken() // move to WITH
@@ -9759,7 +9780,7 @@ func (p *Parser) parseCreateQueueStatement(createToken token.Token) ast.Statemen
 			p.nextToken() // move past )
 		}
 	}
-
+	
 	return stmt
 }
 
@@ -9767,9 +9788,9 @@ func (p *Parser) parseCreateQueueStatement(createToken token.Token) ast.Statemen
 func (p *Parser) parseAlterQueueStatement(alterToken token.Token) ast.Statement {
 	stmt := &ast.AlterQueueStatement{Token: alterToken, Options: make(map[string]string)}
 	p.nextToken() // move past QUEUE
-
+	
 	stmt.Name = p.parseQualifiedIdentifier()
-
+	
 	// Parse WITH options - skip until end of statement
 	if p.peekTokenIs(token.WITH) {
 		p.nextToken() // move to WITH
@@ -9784,7 +9805,7 @@ func (p *Parser) parseAlterQueueStatement(alterToken token.Token) ast.Statement 
 			}
 		}
 	}
-
+	
 	return stmt
 }
 
@@ -9792,17 +9813,17 @@ func (p *Parser) parseAlterQueueStatement(alterToken token.Token) ast.Statement 
 func (p *Parser) parseCreateServiceStatement(createToken token.Token) ast.Statement {
 	stmt := &ast.CreateServiceStatement{Token: createToken}
 	p.nextToken() // move past SERVICE
-
+	
 	stmt.Name = p.curToken.Literal
 	p.nextToken()
-
+	
 	// Optional AUTHORIZATION
 	if p.curTokenIs(token.AUTHORIZATION) {
 		p.nextToken()
 		stmt.Authorization = p.curToken.Literal
 		p.nextToken()
 	}
-
+	
 	// ON QUEUE queue_name (possibly qualified)
 	if p.curTokenIs(token.ON) {
 		p.nextToken() // move past ON
@@ -9813,7 +9834,7 @@ func (p *Parser) parseCreateServiceStatement(createToken token.Token) ast.Statem
 		queueName := p.parseQualifiedIdentifier()
 		stmt.OnQueue = queueName.String()
 	}
-
+	
 	// Contract list (contract1, contract2, ...)
 	if p.peekTokenIs(token.LPAREN) {
 		p.nextToken() // move to (
@@ -9827,7 +9848,7 @@ func (p *Parser) parseCreateServiceStatement(createToken token.Token) ast.Statem
 		}
 		p.nextToken() // move past )
 	}
-
+	
 	return stmt
 }
 
@@ -9836,16 +9857,16 @@ func (p *Parser) parseBeginDialogStatement() ast.Statement {
 	stmt := &ast.BeginDialogStatement{Token: p.curToken, WithOptions: make(map[string]string)}
 	p.nextToken() // move past BEGIN
 	p.nextToken() // move past DIALOG
-
+	
 	// Optional CONVERSATION keyword
 	if p.curTokenIs(token.CONVERSATION) {
 		p.nextToken()
 	}
-
+	
 	// Dialog handle variable
 	stmt.DialogHandle = p.curToken.Literal
 	p.nextToken()
-
+	
 	// FROM SERVICE
 	if p.curTokenIs(token.FROM) {
 		p.nextToken() // move past FROM
@@ -9855,7 +9876,7 @@ func (p *Parser) parseBeginDialogStatement() ast.Statement {
 		stmt.FromService = p.curToken.Literal
 		p.nextToken()
 	}
-
+	
 	// TO SERVICE
 	if p.curTokenIs(token.TO) {
 		p.nextToken() // move past TO
@@ -9870,7 +9891,7 @@ func (p *Parser) parseBeginDialogStatement() ast.Statement {
 		}
 		p.nextToken()
 	}
-
+	
 	// ON CONTRACT
 	if p.curTokenIs(token.ON) {
 		p.nextToken() // move past ON
@@ -9880,7 +9901,7 @@ func (p *Parser) parseBeginDialogStatement() ast.Statement {
 		stmt.OnContract = p.curToken.Literal
 		p.nextToken()
 	}
-
+	
 	// WITH options
 	if p.curTokenIs(token.WITH) {
 		p.nextToken() // move past WITH
@@ -9901,7 +9922,7 @@ func (p *Parser) parseBeginDialogStatement() ast.Statement {
 			}
 		}
 	}
-
+	
 	return stmt
 }
 
@@ -9909,7 +9930,7 @@ func (p *Parser) parseBeginDialogStatement() ast.Statement {
 func (p *Parser) parseSendOnConversationStatement() ast.Statement {
 	stmt := &ast.SendOnConversationStatement{Token: p.curToken}
 	p.nextToken() // move past SEND
-
+	
 	// ON CONVERSATION
 	if p.curTokenIs(token.ON) {
 		p.nextToken() // move past ON
@@ -9917,11 +9938,11 @@ func (p *Parser) parseSendOnConversationStatement() ast.Statement {
 	if p.curTokenIs(token.CONVERSATION) {
 		p.nextToken() // move past CONVERSATION
 	}
-
+	
 	// Conversation handle
 	stmt.ConversationHandle = p.curToken.Literal
 	p.nextToken()
-
+	
 	// Optional MESSAGE TYPE
 	if p.curTokenIs(token.MESSAGE) {
 		p.nextToken() // move past MESSAGE
@@ -9931,7 +9952,7 @@ func (p *Parser) parseSendOnConversationStatement() ast.Statement {
 		stmt.MessageType = p.curToken.Literal
 		p.nextToken()
 	}
-
+	
 	// Message body in parentheses
 	if p.curTokenIs(token.LPAREN) {
 		p.nextToken() // move past (
@@ -9940,7 +9961,7 @@ func (p *Parser) parseSendOnConversationStatement() ast.Statement {
 			p.nextToken()
 		}
 	}
-
+	
 	return stmt
 }
 
@@ -9948,7 +9969,7 @@ func (p *Parser) parseSendOnConversationStatement() ast.Statement {
 func (p *Parser) parseReceiveStatement() ast.Statement {
 	stmt := &ast.ReceiveStatement{Token: p.curToken}
 	p.nextToken() // move past RECEIVE
-
+	
 	// Optional TOP(n)
 	if p.curTokenIs(token.TOP) {
 		p.nextToken() // move past TOP
@@ -9961,11 +9982,11 @@ func (p *Parser) parseReceiveStatement() ast.Statement {
 			p.nextToken() // move past )
 		}
 	}
-
+	
 	// Parse columns: @var = column_name, ...
 	for !p.curTokenIs(token.FROM) && !p.curTokenIs(token.EOF) {
 		col := &ast.ReceiveColumn{}
-
+		
 		// Check for @var = column pattern
 		if p.curTokenIs(token.VARIABLE) {
 			col.Variable = p.curToken.Literal
@@ -9974,22 +9995,22 @@ func (p *Parser) parseReceiveStatement() ast.Statement {
 				p.nextToken() // move past =
 			}
 		}
-
+		
 		col.ColumnName = p.curToken.Literal
 		stmt.Columns = append(stmt.Columns, col)
 		p.nextToken()
-
+		
 		if p.curTokenIs(token.COMMA) {
 			p.nextToken()
 		}
 	}
-
+	
 	// FROM queue
 	if p.curTokenIs(token.FROM) {
 		p.nextToken() // move past FROM
 		stmt.FromQueue = p.parseQualifiedIdentifier()
 	}
-
+	
 	return stmt
 }
 
@@ -9997,10 +10018,10 @@ func (p *Parser) parseReceiveStatement() ast.Statement {
 func (p *Parser) parseEndConversationStatement() ast.Statement {
 	stmt := &ast.EndConversationStatement{Token: p.curToken}
 	p.nextToken() // move past END_CONVERSATION
-
+	
 	// Conversation handle
 	stmt.ConversationHandle = p.curToken.Literal
-
+	
 	// WITH CLEANUP or WITH ERROR
 	if p.peekTokenIs(token.WITH) {
 		p.nextToken() // move to WITH
@@ -10025,7 +10046,7 @@ func (p *Parser) parseEndConversationStatement() ast.Statement {
 			}
 		}
 	}
-
+	
 	return stmt
 }
 
@@ -10033,7 +10054,7 @@ func (p *Parser) parseEndConversationStatement() ast.Statement {
 func (p *Parser) parseGetConversationGroupStatement() ast.Statement {
 	stmt := &ast.GetConversationGroupStatement{Token: p.curToken}
 	p.nextToken() // move past GET
-
+	
 	// CONVERSATION GROUP
 	if p.curTokenIs(token.CONVERSATION) {
 		p.nextToken() // move past CONVERSATION
@@ -10041,17 +10062,17 @@ func (p *Parser) parseGetConversationGroupStatement() ast.Statement {
 	if p.curTokenIs(token.GROUP) {
 		p.nextToken() // move past GROUP
 	}
-
+	
 	// Group ID variable
 	stmt.GroupId = p.curToken.Literal
 	p.nextToken()
-
+	
 	// FROM queue
 	if p.curTokenIs(token.FROM) {
 		p.nextToken() // move past FROM
 		stmt.FromQueue = p.parseQualifiedIdentifier()
 	}
-
+	
 	return stmt
 }
 
@@ -10059,22 +10080,22 @@ func (p *Parser) parseGetConversationGroupStatement() ast.Statement {
 func (p *Parser) parseMoveConversationStatement() ast.Statement {
 	stmt := &ast.MoveConversationStatement{Token: p.curToken}
 	p.nextToken() // move past MOVE
-
+	
 	if p.curTokenIs(token.CONVERSATION) {
 		p.nextToken() // move past CONVERSATION
 	}
-
+	
 	// Conversation handle
 	stmt.ConversationHandle = p.curToken.Literal
 	p.nextToken()
-
+	
 	// TO group_id
 	if p.curTokenIs(token.TO) {
 		p.nextToken() // move past TO
 		stmt.ToGroupId = p.curToken.Literal
 		p.nextToken()
 	}
-
+	
 	return stmt
 }
 
@@ -10083,12 +10104,12 @@ func (p *Parser) parseDropServiceBrokerObject(dropToken token.Token, objectType 
 	stmt := &ast.DropObjectStatement{Token: dropToken}
 	stmt.ObjectType = objectType
 	p.nextToken() // move past first keyword
-
+	
 	// Handle two-word types like MESSAGE TYPE
 	if objectType == "MESSAGE TYPE" && strings.ToUpper(p.curToken.Literal) == "TYPE" {
 		p.nextToken()
 	}
-
+	
 	// Check for IF EXISTS
 	if p.curTokenIs(token.IF) {
 		p.nextToken() // move past IF
@@ -10097,10 +10118,10 @@ func (p *Parser) parseDropServiceBrokerObject(dropToken token.Token, objectType 
 			p.nextToken()
 		}
 	}
-
+	
 	name := p.parseQualifiedIdentifier()
 	stmt.Names = append(stmt.Names, name)
-
+	
 	return stmt
 }
 
@@ -10182,7 +10203,34 @@ func (p *Parser) parseCreateProcedureStatement() ast.Statement {
 
 	// Parse body - either BEGIN block or single/multiple statements
 	if p.curTokenIs(token.BEGIN) {
-		stmt.Body = p.parseBeginEndBlock()
+		// Check for BEGIN TRY (needs special handling as it returns TryCatchStatement, not BeginEndBlock)
+		if p.peekTokenIs(token.TRY) {
+			// Wrap TRY/CATCH in a synthetic BeginEndBlock
+			tryCatch := p.parseTryCatchStatement()
+			block := &ast.BeginEndBlock{Token: p.curToken}
+			block.Statements = []ast.Statement{tryCatch}
+			stmt.Body = block
+		} else if p.peekTokenIs(token.TRANSACTION) || p.peekTokenIs(token.TRAN) {
+			// BEGIN TRANSACTION at procedure start - wrap in block
+			txn := p.parseBeginTransactionStatement()
+			block := &ast.BeginEndBlock{Token: p.curToken}
+			block.Statements = []ast.Statement{txn}
+			// Continue parsing remaining statements
+			p.nextToken()
+			for !p.curTokenIs(token.EOF) && !p.curTokenIs(token.GO) {
+				s := p.parseStatement()
+				if s != nil {
+					block.Statements = append(block.Statements, s)
+				}
+				if p.peekTokenIs(token.EOF) || p.peekTokenIs(token.GO) {
+					break
+				}
+				p.nextToken()
+			}
+			stmt.Body = block
+		} else {
+			stmt.Body = p.parseBeginEndBlock()
+		}
 	} else if p.curTokenIs(token.BEGIN_ATOMIC) {
 		// BEGIN ATOMIC WITH (...) for natively compiled procedures
 		stmt.Body = p.parseBeginAtomicBlock()
@@ -10246,8 +10294,8 @@ func (p *Parser) parseParameterDef() *ast.ParameterDef {
 		param.Default = p.parseExpression(LOWEST)
 	}
 
-	// Check for OUTPUT
-	if p.peekTokenIs(token.OUTPUT) {
+	// Check for OUTPUT or OUT (T-SQL accepts both)
+	if p.peekTokenIs(token.OUTPUT) || p.peekTokenIs(token.OUT) {
 		p.nextToken()
 		param.Output = true
 	}
@@ -10260,8 +10308,8 @@ func (p *Parser) parseThrowStatement() ast.Statement {
 
 	// THROW with no arguments (re-throw in CATCH block)
 	// Can be followed by SEMICOLON, EOF, END, or statement terminator
-	if p.peekTokenIs(token.SEMICOLON) || p.peekTokenIs(token.EOF) ||
-		p.peekTokenIs(token.END) || p.peekTokenIs(token.GO) {
+	if p.peekTokenIs(token.SEMICOLON) || p.peekTokenIs(token.EOF) || 
+	   p.peekTokenIs(token.END) || p.peekTokenIs(token.GO) {
 		return stmt
 	}
 
@@ -10388,17 +10436,17 @@ func (p *Parser) parseWithStatement() ast.Statement {
 // parseWithXmlnamespacesStatement parses WITH XMLNAMESPACES (...) SELECT ...
 func (p *Parser) parseWithXmlnamespacesStatement() ast.Statement {
 	stmt := &ast.WithXmlnamespacesStatement{Token: p.curToken}
-
+	
 	// Current token is WITH_XMLNAMESPACES, expect (
 	if !p.expectPeek(token.LPAREN) {
 		return nil
 	}
 	p.nextToken() // move past (
-
+	
 	// Parse namespace declarations
 	for !p.curTokenIs(token.RPAREN) && !p.curTokenIs(token.EOF) {
 		ns := &ast.XmlNamespaceDef{}
-
+		
 		if p.curTokenIs(token.DEFAULT_KW) {
 			ns.IsDefault = true
 			p.nextToken() // move past DEFAULT
@@ -10417,22 +10465,22 @@ func (p *Parser) parseWithXmlnamespacesStatement() ast.Statement {
 		} else {
 			p.nextToken() // skip unknown token
 		}
-
+		
 		stmt.Namespaces = append(stmt.Namespaces, ns)
-
+		
 		if p.curTokenIs(token.COMMA) {
 			p.nextToken() // move past comma
 		}
 	}
-
+	
 	// Move past )
 	if p.curTokenIs(token.RPAREN) {
 		p.nextToken()
 	}
-
+	
 	// Parse the main query (typically SELECT)
 	stmt.Query = p.parseStatement()
-
+	
 	return stmt
 }
 
@@ -10477,33 +10525,33 @@ func (p *Parser) parseGoStatement() ast.Statement {
 // Syntax: ENABLE/DISABLE TRIGGER { trigger_name | ALL } ON { table | DATABASE | ALL SERVER }
 func (p *Parser) parseEnableDisableTriggerStatement(enable bool) ast.Statement {
 	stmt := &ast.EnableDisableTriggerStatement{Token: p.curToken, Enable: enable}
-
+	
 	// Expect TRIGGER
 	if !p.expectPeek(token.TRIGGER) {
 		return nil
 	}
 	p.nextToken() // move past TRIGGER
-
+	
 	// Parse trigger name or ALL
 	if p.curTokenIs(token.ALL) {
 		stmt.AllTriggers = true
 	} else {
 		stmt.TriggerName = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 	}
-
+	
 	// Expect ON
 	if !p.expectPeek(token.ON) {
 		return nil
 	}
 	p.nextToken() // move past ON
-
+	
 	// Parse target: table name, DATABASE, or ALL SERVER
 	if p.curTokenIs(token.DATABASE) {
 		stmt.OnDatabase = true
 	} else if p.curTokenIs(token.ALL) {
 		// ALL SERVER
 		if p.peekTokenIs(token.IDENT) && strings.ToUpper(p.peekToken.Literal) == "SERVER" ||
-			p.peekTokenIs(token.SERVER) {
+		   p.peekTokenIs(token.SERVER) {
 			p.nextToken()
 			stmt.OnAllServer = true
 		}
@@ -10511,7 +10559,7 @@ func (p *Parser) parseEnableDisableTriggerStatement(enable bool) ast.Statement {
 		// Table name
 		stmt.TableName = p.parseQualifiedIdentifier()
 	}
-
+	
 	return stmt
 }
 
@@ -10522,7 +10570,7 @@ func (p *Parser) parseEnableDisableTriggerStatement(enable bool) ast.Statement {
 func (p *Parser) parseUseStatement() ast.Statement {
 	stmt := &ast.UseStatement{Token: p.curToken}
 	p.nextToken()
-
+	
 	stmt.Database = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 	return stmt
 }
@@ -10530,11 +10578,11 @@ func (p *Parser) parseUseStatement() ast.Statement {
 func (p *Parser) parseWaitforStatement() ast.Statement {
 	stmt := &ast.WaitforStatement{Token: p.curToken}
 	p.nextToken()
-
+	
 	// DELAY or TIME
 	stmt.Type = strings.ToUpper(p.curToken.Literal)
 	p.nextToken()
-
+	
 	// Duration (string or variable)
 	stmt.Duration = p.parseExpression(LOWEST)
 	return stmt
@@ -10543,12 +10591,12 @@ func (p *Parser) parseWaitforStatement() ast.Statement {
 func (p *Parser) parseSaveTransactionStatement() ast.Statement {
 	stmt := &ast.SaveTransactionStatement{Token: p.curToken}
 	p.nextToken() // move past SAVE
-
+	
 	// TRANSACTION or TRAN (optional)
 	if p.curTokenIs(token.TRANSACTION) || p.curTokenIs(token.TRAN) {
 		p.nextToken()
 	}
-
+	
 	stmt.SavepointName = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 	return stmt
 }
@@ -10556,7 +10604,7 @@ func (p *Parser) parseSaveTransactionStatement() ast.Statement {
 func (p *Parser) parseGotoStatement() ast.Statement {
 	stmt := &ast.GotoStatement{Token: p.curToken}
 	p.nextToken()
-
+	
 	stmt.Label = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 	return stmt
 }
