@@ -696,6 +696,13 @@ func (p *Parser) parseScopeExpression(left ast.Expression) ast.Expression {
 
 func (p *Parser) parseCallExpression(function ast.Expression) ast.Expression {
 	exp := &ast.FunctionCall{Token: p.curToken, Function: function}
+
+	// Check for DISTINCT modifier before parsing arguments (for aggregate functions)
+	if p.peekTokenIs(token.DISTINCT) {
+		p.nextToken() // consume DISTINCT
+		exp.Distinct = true
+	}
+
 	exp.Arguments = p.parseExpressionList(token.RPAREN)
 
 	// Check for WITHIN GROUP clause (for ordered-set aggregate functions)

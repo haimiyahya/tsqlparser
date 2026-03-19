@@ -496,6 +496,7 @@ func (ce *ConvertExpression) String() string {
 type FunctionCall struct {
 	Token       token.Token
 	Function    Expression
+	Distinct    bool // For aggregate functions with DISTINCT modifier
 	Arguments   []Expression
 	WithinGroup []*OrderByItem // For WITHIN GROUP (ORDER BY ...) - ordered-set aggregates
 	Over        *OverClause
@@ -508,7 +509,11 @@ func (fc *FunctionCall) String() string {
 	for _, a := range fc.Arguments {
 		args = append(args, a.String())
 	}
-	result := fc.Function.String() + "(" + strings.Join(args, ", ") + ")"
+	distinct := ""
+	if fc.Distinct {
+		distinct = "DISTINCT "
+	}
+	result := fc.Function.String() + "(" + distinct + strings.Join(args, ", ") + ")"
 	if len(fc.WithinGroup) > 0 {
 		result += " WITHIN GROUP (ORDER BY "
 		var orderParts []string
