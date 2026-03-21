@@ -1246,7 +1246,8 @@ func (p *Parser) parseNotInfixExpression(left ast.Expression) ast.Expression {
 	case token.LIKE:
 		expr := &ast.LikeExpression{Token: p.curToken, Expr: left, Not: true}
 		p.nextToken()
-		expr.Pattern = p.parseExpression(LOWEST)
+		// Use COMPARE precedence to prevent AND from being consumed as part of pattern
+		expr.Pattern = p.parseExpression(COMPARE)
 		if p.peekTokenIs(token.ESCAPE) {
 			p.nextToken()
 			p.nextToken()
