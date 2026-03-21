@@ -4880,6 +4880,10 @@ func (p *Parser) parseCreateStatement() ast.Statement {
 			p.nextToken() // move to INDEX
 			return p.parseCreateIndexStatement(createToken, false, nil)
 		}
+		if upper == "COLUMNSTORE" && p.peekTokenIs(token.INDEX) {
+			p.nextToken() // move to INDEX
+			return p.parseCreateIndexStatement(createToken, false, nil)
+		}
 		return nil
 	default:
 		// Skip other CREATE statements for now
