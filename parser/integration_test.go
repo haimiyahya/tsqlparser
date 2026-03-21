@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ha1tch/tsqlparser/lexer"
+	"github.com/haimiyahya/tsqlparser/lexer"
 )
 
 // TestCorpusIntegration runs the parser against all T-SQL sample files

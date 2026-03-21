@@ -6,7 +6,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/ha1tch/tsqlparser/token"
+	"github.com/haimiyahya/tsqlparser/token"
 )
 
 // Lexer represents a lexical scanner for T-SQL.

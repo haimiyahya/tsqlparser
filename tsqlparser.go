@@ -14,10 +14,10 @@
 package tsqlparser
 
 import (
-	"github.com/ha1tch/tsqlparser/ast"
-	"github.com/ha1tch/tsqlparser/lexer"
-	"github.com/ha1tch/tsqlparser/parser"
-	"github.com/ha1tch/tsqlparser/token"
+	"github.com/haimiyahya/tsqlparser/ast"
+	"github.com/haimiyahya/tsqlparser/lexer"
+	"github.com/haimiyahya/tsqlparser/parser"
+	"github.com/haimiyahya/tsqlparser/token"
 )
 
 // Parse parses T-SQL code and returns the AST and any errors.

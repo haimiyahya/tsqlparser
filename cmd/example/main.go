@@ -4,8 +4,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/ha1tch/tsqlparser"
-	"github.com/ha1tch/tsqlparser/ast"
+	"github.com/haimiyahya/tsqlparser"
+	"github.com/haimiyahya/tsqlparser/ast"
 )
 
 func main() {

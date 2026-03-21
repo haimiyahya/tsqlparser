@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ha1tch/tsqlparser/ast"
-	"github.com/ha1tch/tsqlparser/lexer"
+	"github.com/haimiyahya/tsqlparser/ast"
+	"github.com/haimiyahya/tsqlparser/lexer"
 )
 
 func TestSelectStatement(t *testing.T) {

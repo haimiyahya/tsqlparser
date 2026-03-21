@@ -3,7 +3,7 @@ package lexer
 import (
 	"testing"
 
-	"github.com/ha1tch/tsqlparser/token"
+	"github.com/haimiyahya/tsqlparser/token"
 )
 
 func TestKeywordRecognition(t *testing.T) {

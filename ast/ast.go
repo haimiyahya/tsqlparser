@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ha1tch/tsqlparser/token"
+	"github.com/haimiyahya/tsqlparser/token"
 )
 
 // Node represents a node in the AST.

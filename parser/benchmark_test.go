@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ha1tch/tsqlparser/lexer"
+	"github.com/haimiyahya/tsqlparser/lexer"
 )
 
 // =============================================================================

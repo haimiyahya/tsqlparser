@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ha1tch/tsqlparser/ast"
-	"github.com/ha1tch/tsqlparser/lexer"
-	"github.com/ha1tch/tsqlparser/token"
+	"github.com/haimiyahya/tsqlparser/ast"
+	"github.com/haimiyahya/tsqlparser/lexer"
+	"github.com/haimiyahya/tsqlparser/token"
 )
 
 // Operator precedence levels
