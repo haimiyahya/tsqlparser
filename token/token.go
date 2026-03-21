@@ -334,6 +334,7 @@ const (
 	UNIQUEIDENTIFIER
 	XML
 	JSON
+	BROWSE
 	SQL_VARIANT
 	HIERARCHYID
 	GEOMETRY
@@ -838,6 +839,7 @@ var keywords = map[string]Type{
 	"UNIQUEIDENTIFIER":    UNIQUEIDENTIFIER,
 	"XML":                 XML,
 	"JSON":                JSON,
+	"BROWSE":              BROWSE,
 	"RAW":                 RAW,
 	"AUTO":                AUTO,
 	"PATH":                PATH,

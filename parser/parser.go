@@ -1656,27 +1656,31 @@ func (p *Parser) parseSelectStatement() *ast.SelectStatement {
 	return stmt
 }
 
-// parseForClause parses FOR XML or FOR JSON clause
+// parseForClause parses FOR XML, FOR JSON, or FOR BROWSE clause
 func (p *Parser) parseForClause() *ast.ForClause {
 	clause := &ast.ForClause{Token: p.curToken}
-	
-	// Expect XML or JSON
+
+	// Expect XML, JSON, or BROWSE
 	if p.peekTokenIs(token.XML) {
 		p.nextToken()
 	} else if p.peekTokenIs(token.JSON) {
 		p.nextToken()
+	} else if p.peekTokenIs(token.BROWSE) {
+		p.nextToken()
+		clause.ForType = "BROWSE"
+		return clause // BROWSE has no additional options
 	} else {
-		p.errors = append(p.errors, "expected XML or JSON after FOR")
+		p.errors = append(p.errors, "expected XML, JSON, or BROWSE after FOR")
 		return nil
 	}
-	
+
 	clause.ForType = p.curToken.Literal
-	
+
 	// Parse mode: RAW, AUTO, PATH, EXPLICIT
 	if p.peekTokenIs(token.RAW) || p.peekTokenIs(token.AUTO) || p.peekTokenIs(token.PATH) || p.peekTokenIs(token.EXPLICIT) {
 		p.nextToken()
 		clause.Mode = p.curToken.Literal
-		
+
 		// Check for optional element name: RAW('name') or PATH('name')
 		if p.peekTokenIs(token.LPAREN) {
 			p.nextToken() // consume (
