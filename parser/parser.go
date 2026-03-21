@@ -1629,11 +1629,11 @@ func (p *Parser) parseSelectStatement() *ast.SelectStatement {
 		}
 	}
 
-	// Parse FOR XML / FOR JSON (but not FOR SYSTEM_TIME which is handled in table parsing)
+	// Parse FOR XML / FOR JSON / FOR BROWSE (but not FOR SYSTEM_TIME which is handled in table parsing)
 	// Also don't consume FOR UPDATE (used in cursor declarations)
 	if p.peekTokenIs(token.FOR) {
-		// Look ahead - need to check if next-next is XML or JSON
-		if p.peekPeekTokenIs(token.XML) || p.peekPeekTokenIs(token.JSON) {
+		// Look ahead - need to check if next-next is XML, JSON, or BROWSE
+		if p.peekPeekTokenIs(token.XML) || p.peekPeekTokenIs(token.JSON) || p.peekPeekTokenIs(token.BROWSE) {
 			p.nextToken() // move to FOR
 			// curToken is now FOR, parseForClause expects this
 			stmt.ForClause = p.parseForClause()
