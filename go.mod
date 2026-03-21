@@ -1,3 +1,3 @@
-module github.com/ha1tch/tsqlparser
+module github.com/haimiyahya/tsqlparser
 
 go 1.22.2
