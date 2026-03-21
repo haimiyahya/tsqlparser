@@ -1089,7 +1089,9 @@ func (p *Parser) parseLikeExpression(left ast.Expression) ast.Expression {
 	}
 
 	p.nextToken()
-	expr.Pattern = p.parseExpression(LOWEST)
+	// Parse pattern with precedence higher than AND to prevent AND from being consumed
+	// This fixes: "A NOT LIKE 'x%' AND A NOT LIKE 'y%'" being parsed incorrectly
+	expr.Pattern = p.parseExpression(COMPARE)
 
 	// Check for ESCAPE clause
 	if p.peekTokenIs(token.ESCAPE) {
