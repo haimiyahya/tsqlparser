@@ -242,6 +242,13 @@ func (l *Lexer) NextToken() token.Token {
 			tok.Literal = l.readString()
 			return tok
 		}
+		if l.peekChar() == '"' {
+			// N"text" is also a valid unicode string literal in T-SQL
+			l.readChar()
+			tok.Type = token.NSTRING
+			tok.Literal = l.readQuotedIdentifier() // Double-quoted string
+			return tok
+		}
 		tok.Literal = l.readIdentifier()
 		tok.Type = token.LookupIdent(strings.ToUpper(tok.Literal))
 		// Check for compound keywords like END CONVERSATION, NEXT VALUE FOR, XML SCHEMA COLLECTION
