@@ -4736,13 +4736,24 @@ func (p *Parser) parseCreateStatement() ast.Statement {
 	createToken := p.curToken
 	p.nextToken()
 
+	// Check for CREATE OR ALTER pattern
+	orAlter := false
+	if p.curTokenIs(token.OR) {
+		// Check if next token is ALTER
+		if p.peekTokenIs(token.ALTER) || (p.peekTokenIs(token.IDENT) && strings.ToUpper(p.peekToken.Literal) == "ALTER") {
+			orAlter = true
+			p.nextToken() // consume OR
+			p.nextToken() // consume ALTER
+		}
+	}
+
 	switch p.curToken.Type {
 	case token.PROCEDURE, token.PROC:
-		return p.parseCreateProcedureStatement()
+		return p.parseCreateProcedureStatement(orAlter)
 	case token.TABLE:
 		return p.parseCreateTableStatement()
 	case token.VIEW:
-		return p.parseCreateViewStatement(createToken)
+		return p.parseCreateViewStatement(createToken, orAlter)
 	case token.INDEX:
 		return p.parseCreateIndexStatement(createToken, false, nil)
 	case token.UNIQUE:
@@ -4791,7 +4802,7 @@ func (p *Parser) parseCreateStatement() ast.Statement {
 		}
 		return nil
 	case token.FUNCTION:
-		return p.parseCreateFunctionStatement(createToken)
+		return p.parseCreateFunctionStatement(createToken, orAlter)
 	case token.DEFAULT_KW:
 		return p.parseCreateDefaultStatement(createToken)
 	case token.PRIMARY:
@@ -4815,7 +4826,7 @@ func (p *Parser) parseCreateStatement() ast.Statement {
 		// CREATE XML SCHEMA COLLECTION name AS N'...'
 		return p.parseCreateXmlSchemaCollectionStatement(createToken)
 	case token.TRIGGER:
-		return p.parseCreateTriggerStatement(createToken)
+		return p.parseCreateTriggerStatement(createToken, orAlter)
 	case token.TYPE_WARNING:
 		return p.parseCreateTypeStatement(createToken)
 	case token.SYNONYM:
@@ -6382,8 +6393,8 @@ func (p *Parser) parseAlterTableAction() *ast.AlterTableAction {
 // Stage 5: Additional DDL Parsers
 // -----------------------------------------------------------------------------
 
-func (p *Parser) parseCreateViewStatement(createToken token.Token) ast.Statement {
-	stmt := &ast.CreateViewStatement{Token: createToken}
+func (p *Parser) parseCreateViewStatement(createToken token.Token, orAlter bool) ast.Statement {
+	stmt := &ast.CreateViewStatement{Token: createToken, OrAlter: orAlter}
 	p.nextToken() // move past VIEW
 
 	stmt.Name = p.parseQualifiedIdentifier()
@@ -6651,8 +6662,8 @@ func (p *Parser) parseCreateRuleStatement() ast.Statement {
 	return stmt
 }
 
-func (p *Parser) parseCreateFunctionStatement(createToken token.Token) ast.Statement {
-	stmt := &ast.CreateFunctionStatement{Token: createToken}
+func (p *Parser) parseCreateFunctionStatement(createToken token.Token, orAlter bool) ast.Statement {
+	stmt := &ast.CreateFunctionStatement{Token: createToken, OrAlter: orAlter}
 	p.nextToken() // move past FUNCTION
 
 	stmt.Name = p.parseQualifiedIdentifier()
@@ -6761,8 +6772,8 @@ func (p *Parser) parseCreateFunctionStatement(createToken token.Token) ast.State
 	return stmt
 }
 
-func (p *Parser) parseCreateTriggerStatement(createToken token.Token) ast.Statement {
-	stmt := &ast.CreateTriggerStatement{Token: createToken}
+func (p *Parser) parseCreateTriggerStatement(createToken token.Token, orAlter bool) ast.Statement {
+	stmt := &ast.CreateTriggerStatement{Token: createToken, OrAlter: orAlter}
 	p.nextToken() // move past TRIGGER
 
 	stmt.Name = p.parseQualifiedIdentifier()
@@ -10175,8 +10186,8 @@ func (p *Parser) parseDropKeyStatement(dropToken token.Token) ast.Statement {
 	return stmt
 }
 
-func (p *Parser) parseCreateProcedureStatement() ast.Statement {
-	stmt := &ast.CreateProcedureStatement{Token: p.curToken}
+func (p *Parser) parseCreateProcedureStatement(orAlter bool) ast.Statement {
+	stmt := &ast.CreateProcedureStatement{Token: p.curToken, OrAlter: orAlter}
 	p.nextToken()
 
 	stmt.Name = p.parseQualifiedIdentifier()

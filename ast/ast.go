@@ -1807,6 +1807,7 @@ func (mw *MergeWhenClause) String() string {
 // CreateProcedureStatement represents a CREATE PROCEDURE statement.
 type CreateProcedureStatement struct {
 	Token      token.Token
+	OrAlter    bool // true if CREATE OR ALTER PROCEDURE
 	Name       *QualifiedIdentifier
 	Parameters []*ParameterDef
 	Body       *BeginEndBlock
@@ -1817,7 +1818,11 @@ func (cp *CreateProcedureStatement) statementNode()       {}
 func (cp *CreateProcedureStatement) TokenLiteral() string { return cp.Token.Literal }
 func (cp *CreateProcedureStatement) String() string {
 	var out strings.Builder
-	out.WriteString("CREATE PROCEDURE ")
+	if cp.OrAlter {
+		out.WriteString("CREATE OR ALTER PROCEDURE ")
+	} else {
+		out.WriteString("CREATE PROCEDURE ")
+	}
 	out.WriteString(cp.Name.String())
 
 	if len(cp.Parameters) > 0 {
@@ -3175,6 +3180,7 @@ func (dc *DeallocateCursorStatement) String() string {
 // CreateViewStatement represents a CREATE VIEW statement.
 type CreateViewStatement struct {
 	Token         token.Token
+	OrAlter       bool // true if CREATE OR ALTER VIEW
 	Name          *QualifiedIdentifier
 	Columns       []*Identifier // Optional column list
 	Options       []string      // WITH SCHEMABINDING, etc.
@@ -3186,7 +3192,11 @@ func (cv *CreateViewStatement) statementNode()       {}
 func (cv *CreateViewStatement) TokenLiteral() string { return cv.Token.Literal }
 func (cv *CreateViewStatement) String() string {
 	var out strings.Builder
-	out.WriteString("CREATE VIEW ")
+	if cv.OrAlter {
+		out.WriteString("CREATE OR ALTER VIEW ")
+	} else {
+		out.WriteString("CREATE VIEW ")
+	}
 	out.WriteString(cv.Name.String())
 	if len(cv.Columns) > 0 {
 		out.WriteString(" (")
@@ -3451,6 +3461,7 @@ const (
 // CreateFunctionStatement represents a CREATE FUNCTION statement.
 type CreateFunctionStatement struct {
 	Token        token.Token
+	OrAlter      bool // true if CREATE OR ALTER FUNCTION
 	Name         *QualifiedIdentifier
 	Parameters   []*ParameterDef
 	ReturnType   *DataType          // For scalar functions
@@ -3466,7 +3477,11 @@ func (cf *CreateFunctionStatement) statementNode()       {}
 func (cf *CreateFunctionStatement) TokenLiteral() string { return cf.Token.Literal }
 func (cf *CreateFunctionStatement) String() string {
 	var out strings.Builder
-	out.WriteString("CREATE FUNCTION ")
+	if cf.OrAlter {
+		out.WriteString("CREATE OR ALTER FUNCTION ")
+	} else {
+		out.WriteString("CREATE FUNCTION ")
+	}
 	out.WriteString(cf.Name.String())
 	out.WriteString("(")
 	for i, p := range cf.Parameters {
@@ -3527,6 +3542,7 @@ const (
 // CreateTriggerStatement represents a CREATE TRIGGER statement.
 type CreateTriggerStatement struct {
 	Token             token.Token
+	OrAlter           bool // true if CREATE OR ALTER TRIGGER
 	Name              *QualifiedIdentifier
 	Table             *QualifiedIdentifier
 	OnDatabase        bool          // ON DATABASE
@@ -3542,7 +3558,11 @@ func (ct *CreateTriggerStatement) statementNode()       {}
 func (ct *CreateTriggerStatement) TokenLiteral() string { return ct.Token.Literal }
 func (ct *CreateTriggerStatement) String() string {
 	var out strings.Builder
-	out.WriteString("CREATE TRIGGER ")
+	if ct.OrAlter {
+		out.WriteString("CREATE OR ALTER TRIGGER ")
+	} else {
+		out.WriteString("CREATE TRIGGER ")
+	}
 	out.WriteString(ct.Name.String())
 	out.WriteString(" ON ")
 	if ct.OnDatabase {
