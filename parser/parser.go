@@ -10433,7 +10433,9 @@ func (p *Parser) parseRollbackStatement() ast.Statement {
 		p.nextToken()
 	}
 
-	if p.peekTokenIs(token.IDENT) {
+	// If the next token exists (not EOF or semicolon), treat it as the savepoint name
+	// This handles cases like "ROLLBACK TRANSACTION Inner" where "Inner" might be a keyword
+	if !p.peekTokenIs(token.SEMICOLON) && !p.peekTokenIs(token.EOF) {
 		p.nextToken()
 		stmt.Name = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 	}
