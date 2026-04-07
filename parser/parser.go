@@ -4910,6 +4910,20 @@ func (p *Parser) parseCreateTableStatement() ast.Statement {
 	stmt := &ast.CreateTableStatement{Token: p.curToken}
 	p.nextToken()
 
+	// Check for IF NOT EXISTS before parsing the table name
+	if p.curTokenIs(token.IF) {
+		p.nextToken() // consume IF
+		if !p.curTokenIs(token.NOT) {
+			return nil
+		}
+		p.nextToken() // consume NOT
+		if !p.curTokenIs(token.EXISTS) {
+			return nil
+		}
+		p.nextToken() // consume EXISTS
+		stmt.IfNotExists = true
+	}
+
 	stmt.Name = p.parseQualifiedIdentifier()
 
 	// Check for temporary table

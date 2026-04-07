@@ -2772,6 +2772,7 @@ type CreateTableStatement struct {
 	Token           token.Token
 	Name            *QualifiedIdentifier
 	IsTemporary     bool   // #temp or ##global
+	IfNotExists     bool   // IF NOT EXISTS clause
 	Columns         []*ColumnDefinition
 	Constraints     []*TableConstraint
 	AsSelect        *SelectStatement // CREATE TABLE ... AS SELECT
@@ -2784,6 +2785,9 @@ func (ct *CreateTableStatement) TokenLiteral() string { return ct.Token.Literal 
 func (ct *CreateTableStatement) String() string {
 	var out strings.Builder
 	out.WriteString("CREATE TABLE ")
+	if ct.IfNotExists {
+		out.WriteString("IF NOT EXISTS ")
+	}
 	out.WriteString(ct.Name.String())
 	out.WriteString(" (\n")
 	
