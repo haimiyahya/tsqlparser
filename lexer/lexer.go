@@ -2,6 +2,7 @@
 package lexer
 
 import (
+	"fmt"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -17,6 +18,7 @@ type Lexer struct {
 	ch           rune // current char under examination
 	line         int
 	column       int
+	errors       []string // lexical errors encountered during scanning
 }
 
 // New creates a new Lexer for the given input.
@@ -325,6 +327,9 @@ func (l *Lexer) readIdentifier() string {
 func (l *Lexer) readBracketedIdentifier() string {
 	l.readChar() // consume opening [
 	position := l.position
+	startLine := l.line
+	startColumn := l.column - 1
+
 	for l.ch != ']' && l.ch != 0 {
 		// Handle escaped brackets ]]
 		if l.ch == ']' && l.peekChar() == ']' {
@@ -335,6 +340,10 @@ func (l *Lexer) readBracketedIdentifier() string {
 	ident := l.input[position:l.position]
 	if l.ch == ']' {
 		l.readChar() // consume closing ]
+	} else if l.ch == 0 {
+		// Unclosed bracketed identifier
+		l.addError("unclosed bracket in identifier '[%s' (line %d, column %d)",
+			ident, startLine, startColumn)
 	}
 	return ident
 }
@@ -342,6 +351,9 @@ func (l *Lexer) readBracketedIdentifier() string {
 func (l *Lexer) readQuotedIdentifier() string {
 	l.readChar() // consume opening "
 	position := l.position
+	startLine := l.line
+	startColumn := l.column - 1
+
 	for l.ch != '"' && l.ch != 0 {
 		// Handle escaped quotes ""
 		if l.ch == '"' && l.peekChar() == '"' {
@@ -352,6 +364,10 @@ func (l *Lexer) readQuotedIdentifier() string {
 	ident := l.input[position:l.position]
 	if l.ch == '"' {
 		l.readChar() // consume closing "
+	} else if l.ch == 0 {
+		// Unclosed quoted identifier
+		l.addError("unclosed quotation mark in identifier '%s' (line %d, column %d)",
+			ident, startLine, startColumn)
 	}
 	return ident
 }
@@ -440,6 +456,9 @@ func (l *Lexer) readString() string {
 	var result strings.Builder
 	l.readChar() // consume opening quote
 
+	startLine := l.line
+	startColumn := l.column - 1
+
 	for {
 		if l.ch == '\'' {
 			if l.peekChar() == '\'' {
@@ -453,6 +472,9 @@ func (l *Lexer) readString() string {
 				break
 			}
 		} else if l.ch == 0 {
+			// Unclosed string literal - hit EOF before closing quote
+			l.addError("unclosed quotation mark after the character string '%s' (line %d, column %d)",
+				result.String(), startLine, startColumn)
 			break
 		} else {
 			result.WriteRune(l.ch)
@@ -820,6 +842,17 @@ func isDigit(ch rune) bool {
 
 func isHexDigit(ch rune) bool {
 	return isDigit(ch) || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')
+}
+
+// Errors returns any lexical errors encountered during scanning.
+func (l *Lexer) Errors() []string {
+	return l.errors
+}
+
+// addError records a lexical error at the current position.
+func (l *Lexer) addError(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	l.errors = append(l.errors, msg)
 }
 
 // Tokenize returns all tokens from the input as a slice.

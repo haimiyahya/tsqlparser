@@ -253,9 +253,13 @@ func (p *Parser) registerInfix(tokenType token.Type, fn infixParseFn) {
 	p.infixParseFns[tokenType] = fn
 }
 
-// Errors returns the parser errors.
+// Errors returns the parser errors and any lexer errors.
 func (p *Parser) Errors() []string {
-	return p.errors
+	// Combine lexer errors with parser errors
+	allErrors := make([]string, 0, len(p.l.Errors())+len(p.errors))
+	allErrors = append(allErrors, p.l.Errors()...)
+	allErrors = append(allErrors, p.errors...)
+	return allErrors
 }
 
 func (p *Parser) peekError(t token.Type) {
@@ -1987,7 +1991,42 @@ func (p *Parser) parseSelectColumns() []ast.SelectColumn {
 		columns = append(columns, col)
 	}
 
+	// Check for missing comma: if the next token looks like it should be
+	// part of the SELECT list but there's no comma before it, we have
+	// a syntax error like "SELECT 1 2" where 2 should have been preceded by comma
+	if p.isStartOfExpression(p.peekToken.Type) && !p.peekTokenIs(token.EOF) {
+		// This looks like another expression in the SELECT list without a comma
+		p.errors = append(p.errors, fmt.Sprintf("line %d, col %d: incorrect syntax near '%s'. Expected comma or FROM clause",
+			p.peekToken.Line, p.peekToken.Column, p.peekToken.Literal))
+	}
+
 	return columns
+}
+
+// isStartOfExpression returns true if the token type can start an expression
+func (p *Parser) isStartOfExpression(t token.Type) bool {
+	// Literals
+	if t == token.INT || t == token.FLOAT || t == token.STRING ||
+		t == token.NSTRING || t == token.NULL || t == token.BINARY ||
+		t == token.MONEY_LIT {
+		return true
+	}
+	// Identifiers and variables
+	if t == token.IDENT || t == token.VARIABLE || t == token.TEMPVAR || t == token.SYSVAR {
+		return true
+	}
+	// Prefix operators
+	if t == token.NOT || t == token.MINUS || t == token.PLUS || t == token.TILDE || t == token.LPAREN {
+		return true
+	}
+	// Keywords that start expressions
+	if t == token.CASE || t == token.EXISTS || t == token.CAST ||
+		t == token.TRY_CAST || t == token.CONVERT || t == token.TRY_CONVERT ||
+		t == token.PARSE || t == token.TRY_PARSE || t == token.TRIM ||
+		t == token.COALESCE || t == token.NULLIF {
+		return true
+	}
+	return false
 }
 
 func (p *Parser) parseSelectColumn() ast.SelectColumn {
