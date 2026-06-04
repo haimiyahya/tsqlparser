@@ -197,6 +197,8 @@ func New(l *lexer.Lexer) *Parser {
 		token.MAXVALUE, token.MINVALUE,
 		token.CERTIFICATE, token.QUEUE, token.RECEIVE, token.UPDATE,
 		token.TRANSACTION, token.DELETE, token.INSERT,
+		// PASSWORD can be used as column name (e.g., User table Password column)
+		token.PASSWORD,
 		// Hint keywords as identifiers
 		token.HASH, token.LOOP, token.REMOTE, token.MERGE,
 	} {
