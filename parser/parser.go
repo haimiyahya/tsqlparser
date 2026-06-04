@@ -1337,6 +1337,8 @@ func (p *Parser) parseOverClause() *ast.OverClause {
 			return nil
 		}
 	}
+	// Consume the closing RPAREN before returning
+	p.nextToken()
 
 	return over
 }
@@ -1564,8 +1566,13 @@ func (p *Parser) parseSelectStatement() *ast.SelectStatement {
 	}
 
 	// Parse FROM
-	if p.peekTokenIs(token.FROM) {
-		p.nextToken()
+	// Note: After parseSelectColumns, if there's a FROM clause, the current token
+	// might already be at FROM (e.g., when the column list ends with a window function)
+	// So we need to check both current and peek tokens
+	if p.curTokenIs(token.FROM) || p.peekTokenIs(token.FROM) {
+		if !p.curTokenIs(token.FROM) {
+			p.nextToken() // only advance if not already at FROM
+		}
 		stmt.From = p.parseFromClause()
 	}
 
@@ -1996,7 +2003,9 @@ func (p *Parser) parseSelectColumns() []ast.SelectColumn {
 	// Check for missing comma: if the next token looks like it should be
 	// part of the SELECT list but there's no comma before it, we have
 	// a syntax error like "SELECT 1 2" where 2 should have been preceded by comma
-	if p.isStartOfExpression(p.peekToken.Type) && !p.peekTokenIs(token.EOF) {
+	// However, if the current token is a clause keyword (FROM, WHERE, etc.),
+	// then the peek token is part of that clause, not a new column
+	if p.isStartOfExpression(p.peekToken.Type) && !p.peekTokenIs(token.EOF) && !p.isStartOfClause(p.curToken.Type) {
 		// This looks like another expression in the SELECT list without a comma
 		p.errors = append(p.errors, fmt.Sprintf("line %d, col %d: incorrect syntax near '%s'. Expected comma or FROM clause",
 			p.peekToken.Line, p.peekToken.Column, p.peekToken.Literal))
@@ -2055,12 +2064,27 @@ func (p *Parser) parseSelectColumn() ast.SelectColumn {
 		p.nextToken()
 		p.nextToken()
 		col.Alias = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
-	} else if p.peekTokenIs(token.IDENT) {
+	} else if p.peekTokenIs(token.IDENT) && !p.isStartOfClause(p.peekToken.Type) && !p.isStartOfClause(p.curToken.Type) {
+		// Only treat IDENT as alias if:
+		// 1. It's not a clause keyword (like FROM, WHERE, etc.)
+		// 2. The current token is not a clause keyword (prevents treating "T" in "FROM T" as alias)
+		// This prevents treating "FROM T" as "alias T" when the expression
+		// ends with a window function like ROW_NUMBER() OVER (...)
 		p.nextToken()
 		col.Alias = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 	}
 
 	return col
+}
+
+// isStartOfClause returns true if the token type starts a SQL clause
+// This is used to distinguish between column aliases and clause keywords
+func (p *Parser) isStartOfClause(t token.Type) bool {
+	// Clause keywords that can follow a SELECT column list
+	return t == token.FROM || t == token.WHERE || t == token.GROUP ||
+		t == token.HAVING || t == token.ORDER || t == token.UNION ||
+		t == token.INTERSECT || t == token.EXCEPT || t == token.COMMA ||
+		t == token.EOF
 }
 
 func (p *Parser) parseFromClause() *ast.FromClause {
