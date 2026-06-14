@@ -1322,6 +1322,9 @@ func (p *Parser) parseOverClause() *ast.OverClause {
 		if p.curTokenIs(token.RPAREN) && p.peekTokenIs(token.RPAREN) {
 			// Current ) is from subquery, advance to OVER's closing )
 			p.nextToken()
+		} else if p.curTokenIs(token.DESC) || p.curTokenIs(token.ASC) {
+			// ORDER BY ended with DESC/ASC, advance to next token (should be RPAREN)
+			p.nextToken()
 		} else if !p.curTokenIs(token.RPAREN) && !p.curTokenIs(token.ROWS) && !p.curTokenIs(token.RANGE) {
 			p.nextToken()
 		}
@@ -1569,10 +1572,14 @@ func (p *Parser) parseSelectStatement() *ast.SelectStatement {
 	// Note: After parseSelectColumns, if there's a FROM clause, the current token
 	// might already be at FROM (e.g., when the column list ends with a window function)
 	// So we need to check both current and peek tokens
-	if p.curTokenIs(token.FROM) || p.peekTokenIs(token.FROM) {
-		if !p.curTokenIs(token.FROM) {
-			p.nextToken() // only advance if not already at FROM
-		}
+	// Also need to handle case where current token is a keyword (like RANK) used as alias
+	if p.curTokenIs(token.FROM) {
+		// Already at FROM
+		stmt.From = p.parseFromClause()
+	} else if p.peekTokenIs(token.FROM) {
+		// FROM is the next token - advance to it
+		// This handles cases where current token is a column alias keyword like RANK
+		p.nextToken()
 		stmt.From = p.parseFromClause()
 	}
 
@@ -2060,8 +2067,16 @@ func (p *Parser) parseSelectColumn() ast.SelectColumn {
 	col.Expression = p.parseExpression(LOWEST)
 
 	// Check for alias
+	// Note: After parsing an expression like ROW_NUMBER() OVER (...), curToken is AS
+	// (the first token after the expression), not the token before AS
 	if p.peekTokenIs(token.AS) {
+		// Normal case: AS is the next token (e.g., after "columnname")
 		p.nextToken()
+		p.nextToken()
+		col.Alias = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
+	} else if p.curTokenIs(token.AS) {
+		// Special case: curToken is AS after parsing a function call with OVER clause
+		// The OVER clause parsing consumed the closing ), leaving curToken at AS
 		p.nextToken()
 		col.Alias = &ast.Identifier{Token: p.curToken, Value: p.curToken.Literal}
 	} else if p.peekTokenIs(token.IDENT) && !p.isStartOfClause(p.peekToken.Type) && !p.isStartOfClause(p.curToken.Type) {
