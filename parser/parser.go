@@ -4411,13 +4411,11 @@ func (p *Parser) isBlockEndingEnd() bool {
 }
 
 func (p *Parser) parseTryCatchStatement() ast.Statement {
-	fmt.Printf("DEBUG: ENTER parseTryCatchStatement\n")
 	stmt := &ast.TryCatchStatement{Token: p.curToken} // Token is BEGIN
 
 	// Move past BEGIN and TRY to start parsing the Try block
 	p.nextToken() // consume BEGIN, now at TRY
 	p.nextToken() // consume TRY, now at first statement
-	fmt.Printf("DEBUG: After consuming BEGIN TRY, curToken=%v, peekToken=%v\n", p.curToken, p.peekToken)
 
 	// Parse the Try block statements directly without using parseBeginEndBlock
 	// parseBeginEndBlock expects to start at BEGIN, but we've already consumed it
@@ -4446,13 +4444,9 @@ func (p *Parser) parseTryCatchStatement() ast.Statement {
 			tryStatements = append(tryStatements, s)
 		}
 
-		// DEBUG: Log token position after parseStatement
-		fmt.Printf("DEBUG: After parseStatement, curToken=%v, peekToken=%v\n", p.curToken, p.peekToken)
-
 		// Check for END TRY before moving to next token
 		// Some statements (like CREATE SCHEMA) leave the cursor at END
 		if p.curTokenIs(token.END) && p.peekTokenIs(token.TRY) {
-			fmt.Printf("DEBUG: Breaking on END TRY before nextToken\n")
 			break // Exit loop with cursor at END
 		}
 
