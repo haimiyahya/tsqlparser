@@ -4411,34 +4411,155 @@ func (p *Parser) isBlockEndingEnd() bool {
 }
 
 func (p *Parser) parseTryCatchStatement() ast.Statement {
-	stmt := &ast.TryCatchStatement{Token: p.curToken}
-	p.nextToken() // consume TRY
+	fmt.Printf("DEBUG: ENTER parseTryCatchStatement\n")
+	stmt := &ast.TryCatchStatement{Token: p.curToken} // Token is BEGIN
 
-	stmt.TryBlock = p.parseBeginEndBlock()
+	// Move past BEGIN and TRY to start parsing the Try block
+	p.nextToken() // consume BEGIN, now at TRY
+	p.nextToken() // consume TRY, now at first statement
+	fmt.Printf("DEBUG: After consuming BEGIN TRY, curToken=%v, peekToken=%v\n", p.curToken, p.peekToken)
 
-	// Expect END TRY
-	if !p.curTokenIs(token.END) {
-		return nil
+	// Parse the Try block statements directly without using parseBeginEndBlock
+	// parseBeginEndBlock expects to start at BEGIN, but we've already consumed it
+	var tryStatements, catchStatements []ast.Statement
+
+	// Parse TRY block statements until we hit END TRY
+	for !p.curTokenIs(token.EOF) {
+		// Check for END TRY (before parsing)
+		if p.curTokenIs(token.END) && p.peekTokenIs(token.TRY) {
+			break // Exit loop with cursor at END
+		}
+
+		// Skip semicolons before parsing next statement
+		for p.curTokenIs(token.SEMICOLON) {
+			p.nextToken()
+		}
+
+		// Check again for END TRY after semicolons
+		if p.curTokenIs(token.END) && p.peekTokenIs(token.TRY) {
+			break // Exit loop with cursor at END
+		}
+
+		// Parse statement
+		s := p.parseStatement()
+		if s != nil {
+			tryStatements = append(tryStatements, s)
+		}
+
+		// DEBUG: Log token position after parseStatement
+		fmt.Printf("DEBUG: After parseStatement, curToken=%v, peekToken=%v\n", p.curToken, p.peekToken)
+
+		// Check for END TRY before moving to next token
+		// Some statements (like CREATE SCHEMA) leave the cursor at END
+		if p.curTokenIs(token.END) && p.peekTokenIs(token.TRY) {
+			fmt.Printf("DEBUG: Breaking on END TRY before nextToken\n")
+			break // Exit loop with cursor at END
+		}
+
+		// Move to next token after statement
+		p.nextToken()
+
+		// Skip semicolons after statement (for statements like CREATE SCHEMA)
+		for p.curTokenIs(token.SEMICOLON) {
+			p.nextToken()
+		}
+
+		// Check for END TRY after semicolons
+		if p.curTokenIs(token.END) && p.peekTokenIs(token.TRY) {
+			break // Exit loop with cursor at END
+		}
 	}
-	if !p.expectPeek(token.TRY) {
-		return nil
+
+	// Now consume END TRY to exit the TRY block
+	if p.curTokenIs(token.END) && p.peekTokenIs(token.TRY) {
+		p.nextToken() // consume END
+		p.nextToken() // consume TRY
+	}
+
+	// Create TryBlock from parsed statements
+	stmt.TryBlock = &ast.BeginEndBlock{
+		Token:      stmt.Token,
+		Statements: tryStatements,
 	}
 
 	// Expect BEGIN CATCH
-	if !p.expectPeek(token.BEGIN) {
+	if !p.curTokenIs(token.BEGIN) {
 		return nil
 	}
-	if !p.expectPeek(token.CATCH) {
+	if !p.peekTokenIs(token.CATCH) {
 		return nil
+	}
+	p.nextToken() // consume BEGIN
+	p.nextToken() // consume CATCH
+
+	// Parse CATCH block statements
+	for !p.curTokenIs(token.EOF) {
+		// Check for END CATCH (before parsing)
+		if p.curTokenIs(token.END) && p.peekTokenIs(token.CATCH) {
+			break // Exit loop with cursor at END
+		}
+
+		// Skip semicolons before parsing next statement
+		for p.curTokenIs(token.SEMICOLON) {
+			p.nextToken()
+		}
+
+		// Check again for END CATCH after semicolons
+		if p.curTokenIs(token.END) && p.peekTokenIs(token.CATCH) {
+			break // Exit loop with cursor at END
+		}
+
+		// Parse statement
+		s := p.parseStatement()
+		if s != nil {
+			catchStatements = append(catchStatements, s)
+		}
+
+		// Check for END CATCH before moving to next token
+		// Some statements (like CREATE SCHEMA) leave the cursor at END
+		if p.curTokenIs(token.END) && p.peekTokenIs(token.CATCH) {
+			break // Exit loop with cursor at END
+		}
+
+		// Move to next token after statement
+		p.nextToken()
+
+		// Skip semicolons after statement (for statements like CREATE SCHEMA)
+		for p.curTokenIs(token.SEMICOLON) {
+			p.nextToken()
+		}
+
+		// Check for END CATCH after semicolons
+		if p.curTokenIs(token.END) && p.peekTokenIs(token.CATCH) {
+			break // Exit loop with cursor at END
+		}
 	}
 
-	stmt.CatchBlock = p.parseBeginEndBlock()
-
-	// Expect END CATCH
-	if !p.curTokenIs(token.END) {
-		return nil
+	// Now consume END CATCH to exit the CATCH block
+	if p.curTokenIs(token.END) && p.peekTokenIs(token.CATCH) {
+		p.nextToken() // consume END
+		p.nextToken() // consume CATCH
 	}
-	p.expectPeek(token.CATCH)
+
+	// Skip any semicolons after END CATCH
+	for p.curTokenIs(token.SEMICOLON) {
+		p.nextToken()
+	}
+
+	// Check if we're at an END token that ends the outer BEGIN block
+	// This happens when TRY-CATCH is nested inside a BEGIN-END block
+	// We need to consume this END here so parseBeginEndBlock doesn't skip it
+	if p.curTokenIs(token.END) && !p.peekTokenIs(token.TRY) && !p.peekTokenIs(token.CATCH) {
+		// This is an outer END, not part of TRY-CATCH
+		// consume it here so parseBeginEndBlock's nextToken() doesn't skip past it
+		p.nextToken() // consume the outer END
+	}
+
+	// Create CatchBlock from parsed statements
+	stmt.CatchBlock = &ast.BeginEndBlock{
+		Token:      stmt.Token,
+		Statements: catchStatements,
+	}
 
 	return stmt
 }
